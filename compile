@@ -1,0 +1,4 @@
+#! /bin/bash
+
+guile -L ./ -c "((@ (lambdabit compile) compile) $@)"
+
