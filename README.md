@@ -1,4 +1,4 @@
-lambdabit
+λbit
 =========
 
 NOTE: I'll rewrite this piece of shit in the future, but let it be at present.
