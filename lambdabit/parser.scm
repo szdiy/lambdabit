@@ -23,18 +23,12 @@
 
 (module-export-all! (current-module))
 
-(define *op-lst* 
+(define *unimplemented-op-lst* 
   '(quote quasiquote unquote unquote-splicing lambda if set!
     cond and or case let let* letrec begin do define delay))
 
-(define *vm-op-lst*
-  '(%halt %mul-non-neg %div-non-neg %rem-non-neg %sleep %set-led!))
-
-(define (is-Scheme-op? op)
-  (memq op *op-lst*))
-
-(define (is-VM-op? op)
-  (memq op *vm-op-lst*))
+(define (is-unimplemented-op? op)
+  (memq op *unimplemented-op-lst*))
 
 (define (parse-top-list lst env)
   (append-map (lambda (e) (parse-top e env)) lst))
@@ -53,8 +47,8 @@
              (r (make-def #f (list val2) var2)))
         (fix-children-parent! r)
         (when (var-def var2)
-          (compiler-error "variable redefinition forbidden" var2))
-        (var-def! var2 r)
+          (compiler-error "parse-define: variable redefinition forbidden" var2))
+        (var-def-set! var2 r)
         (list r)))))
 
 ;; returns a list of parsed expressions
@@ -64,50 +58,53 @@
     ;; take care of begin, define, etc. and spit out core forms.
     (('begin body ...) ; splicing begins
      (parse-top-list body env))
-    (('define (var params ...) body ...)
-     (parse-define var `(lambda (,params ...) ,body ...) env))
+    (('define (var params ...) body ...) ; definitly defined a function
+     (parse-define var `(lambda (,@params) ,@body) env))
     (('define var val)
      (parse-define var val env
       ;; If we're not defining a function, forward references are
       ;; invalid.
       (match val
-        (('lambda etc ...) #t)
-        (else #f))))
-    (else (list (parse 'value expr env)))))
-
-(define (is-id? expr env)
-  (and (symbol? expr)
-       (env-lookup env expr)))
-
-(define (valid-op? op)
-  (display op) (newline)
-  (or (is-Scheme-op? op)
-      (is-VM-op? op)
-      (compiler-error "The compiler doesn't implement this special form!" op)))
-
-(define (contains-valid-op? expr)
-  (and (list? expr)
-       (valid-op? (car expr))
-       (values (car expr) (cdr expr))))
+        (('lambda etc ...) #t) ; defined a function
+        (else #f)))) ; defined a var 
+    (else 
+     (list (parse 'value expr env)))))
 
 (define* (parse use expr env #:optional (operator-position? #f))
+  ;;(format #t "*** ~a~%" expr)
   (match expr
+    ((? self-eval?)
+     (make-cst #f '() expr))
+    ((? symbol?)
+     (let* ((v (env-lookup env expr))
+            (prim (var-primitive v))
+            (var (if (and prim (not operator-position?))
+                     ;; We eta-expand any primitive used in a higher-order fashion.
+                     (primitive-eta-expansion prim)
+                     v))
+            (r (create-ref var)))
+       (if (not (var-global? var))
+           (let* ((unbox (parse 'value '%unbox env))
+                  (app (make-call #f (list unbox r))))
+             (fix-children-parent! app)
+             app)
+           r)))
     (('set! lhs rhs)
      ;; Again, hack.
      (let ((var (env-lookup env lhs))
            (val (parse 'value rhs env)))
        (when (var-primitive var)
-         (compiler-error "cannot mutate primitive" (var-id var)))
+         (compiler-error "parse: cannot mutate primitive" (var-id var)))
        (if (var-global? var)
            (let ((r (make-set #f (list val) var)))
              (fix-children-parent! r)
-             (var-sets! var (cons r (var-sets var)))
+             (var-sets-set! var (cons r (var-sets var)))
              r)
            (let* ((ref (create-ref var))
                   (bs (create-ref (env-lookup env '%box-set!)))
                   (r (make-call #f `(,bs ,ref ,val))))
              (fix-children-parent! r)
-             (var-sets! var (cons r (var-sets var)))
+             (var-sets-set! var (cons r (var-sets var)))
              r))))
     (('quote datum)
      (make-cst #f '() datum))
@@ -129,10 +126,10 @@
        (((tst '=> rhs) other-clauses ...)
         (let ((x (genid)))
           (parse use
-                 `(let ([,x tst])
+                 `(let ((,x tst))
                      (if ,x
                          (rhs ,x)
-                         (cond other-clauses ...)))
+                         (cond @other-clauses)))
                  env)))
        (((tst rhs ...) other-clauses ...)
         (parse use
@@ -168,7 +165,7 @@
                                         (map (lambda (id)
                                                (parse 'value `(%box ,id) tmp-env))
                                              new-vars)))))
-           (for-each (lambda (var) (var-def! var prc)) mut-vars)
+           (for-each (lambda (var) (var-def-set! var prc)) mut-vars)
            (fix-children-parent! app)
            (prc-params-set! r
                             (map (lambda (id) (env-lookup tmp-env id))
@@ -178,11 +175,12 @@
            r)))))
     (('letrec ((ks vs) ...) body ...)
      (parse use
-            `(let ([,ks #f] ...)
-               (set! ,ks ,vs) ...
-               ,body ...)
+            `(let ((,ks #f))
+               (set! ,ks ,vs)
+               ,@body)
             env))
     (('begin forms ...)
+     ;;(format #t "11: ~a~%" forms)
      (let ((exprs (map (lambda (x) (parse 'value x env)) forms)))
        (cond 
         ((> (length exprs) 1)
@@ -192,27 +190,30 @@
         (else (car exprs)))))
     (('let id ((ks vs) ...) body ...) ; named let
      (parse use
-            `(letrec ((,id (lambda (,ks ...) ,body ...)))
-                (,id ,vs ...))
+            `(letrec ((,id (lambda (,@ks) ,@body)))
+                (,id ,@vs))
             env))
     (('let () body ...)
      (parse use `(begin ,@body) env))
     (('let ((ks vs) ...) body ...)
-     (parse use `((lambda (,ks ...) ,body ...) ,vs ...) env))
+     (parse use `((lambda (,@ks) ,@body) ,@vs) env))
     (('let* () body ...) ; base case for let*
-     (parse use `(let () ,body ...) env))
+     (parse use `(let () ,@body) env))
     (('let* ((k v) bindings ...) body ...)
+     ;;(format #t "k:~a~%v:~a~%bindings:~a~%body:~a~%" k v bindings body)
      (parse use
-            `(let ([,k ,v])
-                (let* (,bindings ...)
-                  ,body ...))
+            (if (null? bindings)
+                `(let ((,k ,v)) ,@body)
+                `(let ((,k ,v))
+                   (let* (,@bindings)
+                     ,@body)))
             env))
     (('and)
      (parse use #t env))
     (('and tst)
      (parse use tst env))
     (('and tst rest ...)
-     (parse use `(if ,tst (and ,rest ...) #f) env))
+     (parse use `(if ,tst (and ,@rest) #f) env))
     (('or) ; base case for or
      (parse use #f env))
     (('or tst)
@@ -221,39 +222,24 @@
      (if (eq? use 'test)
          ;; we don't need to keep the actual result, we only care about
          ;; its "truthiness"
-         (parse use `(if ,tst #t (or ,rest ...)) env)
+         (parse use `(if ,tst #t (or ,@rest)) env)
          (parse use
                 (let ((v (gensym)))
-                  `(let ([,v ,tst])
-                      (if ,v ,v (or ,rest ...))))
+                  `(let ((,v ,tst))
+                      (if ,v ,v (or ,@rest))))
                 env)))
-    (else
-     (cond
-      ((contains-valid-op? expr)
-       values ; return multi values
-       => (lambda (op args)
-            (let* ((exprs (cons (parse 'value op env #t)
-                                (map (lambda (e) (parse 'value e env)) args)))
-                   (r (make-call #f exprs)))
-              (fix-children-parent! r)
-              r)))
-      ((self-evaluating? expr)
-       (make-cst #f '() expr))
-      ((is-id? expr env) ; is identifier
-       => (lambda (v)
-            (let* ((prim (var-primitive v))
-                   (var (if (and prim (not operator-position?))
-                            ;; We eta-expand any primitive used in a higher-order fashion.
-                            (primitive-eta-expansion prim)
-                            v))
-                   (r (create-ref var)))
-              (if (not (var-global? var))
-                  (let* ((unbox (parse 'value '%unbox env))
-                         (app (make-call #f (list unbox r))))
-                    (fix-children-parent! app)
-                    app)
-                  r)))) 
-      (else (compiler-error "unknown expression" expr))))))
-
+    ((op args ...)
+     (=> back!)
+     (if (is-unimplemented-op? op)
+         (compiler-error "parse: the compiler does not implement the special form" op)
+         (back!)))
+    ((op args ...)
+     (let* ((exprs (cons (parse 'value op env #t)
+                         (map (lambda (e) (parse 'value e env)) args)))
+            (r (make-call #f exprs)))
+       (fix-children-parent! r)
+       r))
+    (else (compiler-error "parse: unknown expression" expr))))
+  
 (define (parse-body exprs env)
   (parse 'value `(begin ,@exprs) env))

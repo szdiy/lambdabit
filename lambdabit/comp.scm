@@ -29,8 +29,8 @@
   #:export (comp-node))
 
 (define (comp-node node ctx)
-  (match node
-    ((or (? cst? node) (? ref? node) (? prc? node))
+  (match (->list node)
+    ((or (? %cst?) (? %ref?) (? %prc?))
      ctx) ; we can drop any of these if we don't care about their value
     (('def _ (rhs) var)
      (if (needs-closure? var)
@@ -44,31 +44,31 @@
          (let ((ctx2 (comp-push rhs ctx)))
            (gen-set-global (var-bare-id var) ctx2))
          (comp-node rhs ctx)))
-    ((? if*? node)
+    ((? %if*?)
      (comp-if node 'none ctx))
-    ((? call? node)
+    ((? %call?)
      (comp-call node 'none ctx))
-    ((? seq? node)
+    ((? %seq?)
      (comp-seq node 'none ctx))
-    (else (compiler-error "unknown expression type" node))))
+    (else (compiler-error "comp-node: unknown expression type" node))))
 
 (define (comp-tail node ctx)
-  (match node
-    ((or (? cst? node) (? ref? node) (? def? node) (? set? node) (? prc? node))
+  (match (->list node)
+    ((or (? %cst?) (? %ref?) (? %def?) (? %set?) (? %prc?))
      (gen-return (comp-push node ctx)))
-    ((? if*? node)
+    ((? %if*?)
      (comp-if node 'tail ctx))
-    ((? call? node)
+    ((? %call?)
      (comp-call node 'tail ctx))
-    ((? seq? node)
+    ((? %seq?)
      (comp-seq node 'tail ctx))
-    (else (compiler-error "unknown expression type" node))))
+    (else (compiler-error "comp-tail: unknown expression type" node))))
 
 (define (comp-push node ctx)
-  (match node
-    (('cst _ '() val)
+  (match (->list node)
+    (('cst _ () val)
      (gen-push-constant val ctx))
-    (('ref _ '() var)
+    (('ref _ () var)
      (cond 
       ((not (var-global? var))
        (gen-push-local-var (var-bare-id var) ctx))
@@ -77,42 +77,42 @@
          (if (cst? val) ; immutable global, counted as cst
              (gen-push-constant (cst-val val) ctx)
              (gen-push-global (var-bare-id  var) ctx))))
-       (else (compiler-error "undefined variable:" (var-id var)))))
-    ((or (? def? node) (? set? node))
+       (else (compiler-error "comp-push: undefined variable:" (var-id var)))))
+    ((or (? %def?) (? %set?))
      (gen-push-unspecified (comp-node node ctx)))
-    ((? if*? node)
+    ((? %if*?)
      (comp-if node 'push ctx))
-    ((? prc? node)
+    ((? %prc?)
      (comp-prc node #t ctx))
-    ((? call? node)
+    ((? %call?)
      (comp-call node 'push ctx))
-    ((? seq? node)
+    ((? %seq?)
      (comp-seq node 'push ctx))
-    (else (compiler-error "unknown expression type" node))))
+    (else (compiler-error "comp-push: unknown expression type" node))))
 
 (define (comp-if node reason ctx)
-  (match node
+  (match (->list node)
     (`(if* ,_ (,tst ,thn ,els))
      (case reason
        ((none push)
         (let*-values
             (((rec-comp) (if (eq? reason 'none) comp-node comp-push))
-             ((ctx2 label-then)      (context-make-label ctx))
-             ((ctx3 label-else)      (context-make-label ctx2))
+             ((ctx2 label-then) (context-make-label ctx))
+             ((ctx3 label-else) (context-make-label ctx2))
              ((ctx4 label-then-join) (context-make-label ctx3))
              ((ctx5 label-else-join) (context-make-label ctx4))
-             ((ctx6 label-join)      (context-make-label ctx5))
-             ((ctx7)  (comp-test tst label-then label-else ctx6))
-             ((ctx8)  (gen-goto
-                       label-else-join
-                       (rec-comp els (context-change-env2
-                                      (context-add-bb ctx7 label-else)
-                                      #f))))
-             ((ctx9)  (gen-goto
-                       label-then-join
-                       (rec-comp thn (context-change-env
-                                      (context-add-bb ctx8 label-then)
-                                      (context-env2 ctx7)))))
+             ((ctx6 label-join) (context-make-label ctx5))
+             ((ctx7) (comp-test tst label-then label-else ctx6))
+             ((ctx8) (gen-goto
+                      label-else-join
+                      (rec-comp els (context-change-env2
+                                     (context-add-bb ctx7 label-else)
+                                     #f))))
+             ((ctx9) (gen-goto
+                      label-then-join
+                      (rec-comp thn (context-change-env
+                                     (context-add-bb ctx8 label-then)
+                                     (context-env2 ctx7)))))
              ((ctx10) (gen-goto
                        label-join
                        (context-add-bb ctx9 label-else-join)))
@@ -137,7 +137,7 @@
        ctx6))))))
 
 (define (comp-seq node reason ctx)
-  (match node
+  (match (->list node)
     (('seq _ ())
      (case reason
        ((none) ctx)
@@ -156,7 +156,7 @@
                  (comp-node (car lst) ctx))))))))
 
 (define (build-closure label-entry vars ctx)
-   (define (build vars ctx)
+  (define (build vars ctx)
     (if (null? vars)
         (gen-push-constant '() ctx)
         (gen-prim 'cons
@@ -164,6 +164,7 @@
                   #f
                   (build (cdr vars)
                          (gen-push-local-var (car vars) ctx)))))
+  (display "ZZZZ")(display (->list (caddr (->list ctx))))(newline)
   (if (null? vars)
       (gen-closure label-entry
                    (gen-push-constant '() ctx))
@@ -172,7 +173,7 @@
 
 (define (comp-prc node closure? ctx)
   (let*-values
-      (((ctx2 label-entry)    (context-make-label ctx))
+      (((ctx2 label-entry) (context-make-label ctx))
        ((ctx3 label-continue) (context-make-label ctx2))
        ((body-env) (prc->env node))
        ((ctx4)
@@ -198,13 +199,15 @@
    (map var-bare-id (non-global-fv prc))))
 
 (define (comp-call node reason orig-ctx)
-  (match node
-    (('call _ (op . args))
-     (let* ((nargs (length args))
-            (ctx (fold (lambda (arg ctx) (comp-push arg ctx))
-                       orig-ctx args))) ; push all the arguments
-       ;; generate the call itself
-       (match op
+  (cond
+   ((call? node)
+    (let* ((op (car (node-children node)))
+           (args (cdr (node-children node)))
+           (nargs (length args))
+           (ctx (fold (lambda (arg ctx) (comp-push arg ctx))
+                      orig-ctx args))) ; push all the arguments
+      ;; generate the call itself
+       (match (->list op)
          (('ref _ () (? var-primitive var)) ; primitive call
           (let* ((id (var-bare-id var))
                  (primitive (var-primitive var))
@@ -212,7 +215,7 @@
                  (result-ctx
                   (if (not (= nargs prim-nargs))
                       (compiler-error
-                       "primitive called with wrong number of arguments" id)
+                       "comp-call: primitive called with wrong number of arguments" id)
                       (gen-prim id prim-nargs
                                 (primitive-unspecified-result? primitive)
                                 ctx)))
@@ -242,20 +245,20 @@
             (case reason
               ((tail) (gen-jump nargs ctx2))
               ((push) (gen-call nargs ctx2))
-              (else (gen-pop (gen-call nargs ctx2)))))))
-       (_ (compiler-error "Invalid call site node!" node))))))
+              (else (gen-pop (gen-call nargs ctx2)))))))))
+       (else (compiler-error "comp-call: Invalid call site node!" node))))
   
 (define (comp-test node label-true label-false ctx)
-  (match node
+  (match (->list node)
     (('cst _ () val)
      (let ((ctx2 (gen-goto (if val label-true label-false) ctx)))
        (context-change-env2 ctx2 (context-env ctx2))))
-    ((or (? ref? node) (? def? node) (? set? node) (? if*? node)
-          (? call? node) (? seq? node))
+    ((or (? %ref?) (? %def?) (? %set?) (? %if*?)
+          (? %call?) (? %seq?))
      (let* ((ctx2 (comp-push node ctx))
             (ctx3 (gen-goto-if-false label-false label-true ctx2)))
        (context-change-env2 ctx3 (context-env ctx3))))
-    ((? prc? node) ; always true
+    ((? %prc?) ; always true
      (let ((ctx2 (gen-goto label-true ctx)))
        (context-change-env2 ctx2 (context-env ctx2))))
-    (else (compiler-error "unknown expression type" node))))
+    (else (compiler-error "comp-test: unknown expression type" node))))

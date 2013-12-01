@@ -15,7 +15,7 @@
 
 (define-module (lambdabit env)
   #:use-module (srfi srfi-1)
-  #:use-module (srfi srfi-9)
+  #:use-module ((rnrs) #:select (define-record-type))
   #:use-module (lambdabit utils))
 
 (module-export-all! (current-module))
@@ -26,39 +26,43 @@
 (define (set-global-env! e) (set! global-env e)) ; for primitive generation
 
 (define-record-type var
-  (make-var id global? refs sets def needed? primitive)
-  var?
-  (id var-id var-id!)
-  (global? var-global? var-global?!)
-  (refs var-refs var-refs!)
-  (sets var-sets var-sets!)
-  (def var-def var-def!)
-  (needed? var-needed? var-needed?!)
-  (primitive var-primitive var-primitive!))
+  (fields 
+   id global? 
+   (mutable refs)
+   (mutable sets)
+   (mutable def)
+   (mutable needed?)
+   primitive))
 
 (define-record-type primitive
-  (make-primitive nargs constant-folder eta-expansion unspecified-result?)
-  primitive?
-  (nargs primitive-nargs primitive-nargs!)
-  (constant-folder primitive-constant-folder primitive-constant-folder!)
-  (eta-expansion primitive-eta-expansion primitive-eta-expansion!)
-  (unspecified-result? primitive-unspecified-result? primitive-unspecified-result?!))
+  (fields
+   nargs
+   (mutable constant-folder)
+   (mutable eta-expansion)
+   unspecified-result?))
+
+;; some init values
+(define null-refs '())
+(define null-sets '())
+(define not-def #f)
+(define no-needed #f)
+(define not-primitive #f)
 
 (define (make-primitive-var id prim)
-  (make-var id #t '() '() #f #f prim))
+  (make-var id 'primitive null-refs null-sets not-def no-needed prim))
 
 (define (make-global-var id def)
-  (make-var id #t '() '() def #f #f))
+  (make-var id 'global null-refs null-sets def no-needed not-primitive))
 
 (define (make-local-var id def)
-  (make-var id #f '() '() def #f #f))
+  (make-var id #f null-refs null-sets def no-needed not-primitive))
 
-(define (var-bare-id v) (syntax->datum (var-id v))) ; for code-generation
+(define (var-bare-id v) (var-id v)) ; for code-generation
 
 (define (var=? x y)
-  (and (id=? (var-id  x) (var-id  y))   ; same symbol
+  (and (id=? (var-id x) (var-id y))   ; same symbol
        (eq?  (var-def x) (var-def y)))) ; defined in the same place
-(define (id=? x y) (eq? (syntax->datum x) (syntax->datum y)))
+(define (id=? x y) (eq? x y))
 
 (define allow-forward-references? (make-parameter #t))
 
@@ -68,7 +72,7 @@
       ;; This makes it possible to have forward references at the top level.
       (let ((x (make-var id #t '() '() #f #f #f)))
         (unless (allow-forward-references?)
-          (compiler-error "variable referenced before its definition:" id))
+          (compiler-error "env-lookup: variable referenced before its definition:" id))
         (append! env (list x))
         x)))
 

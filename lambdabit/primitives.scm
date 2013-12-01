@@ -28,73 +28,35 @@
 
 (define (create-eta-expansion prim-var nargs)
   ;; We create AST nodes directly. Looks a lot like the parsing of lambdas.
-  (define r       (create-prc '() '() #f)) ; children params rest?
-  (define ids     (build-list nargs (lambda (x) (genid))))
+  (define r (create-prc '() '() #f)) ; children params rest?
+  (define ids (build-list nargs (lambda (x) (genid))))
   (define new-env (env-extend global-env ids r))
-  (define args    (map (lambda (id) (env-lookup new-env id)) ids))
-  (define op      (create-ref prim-var))
-  (define call    (make-call #f (cons op (map create-ref args))))
+  (define args (map (lambda (id) (env-lookup new-env id)) ids))
+  (define op (create-ref prim-var))
+  (define call (make-call #f (cons op (map create-ref args))))
   (fix-children-parent! call)
-  (prc-params-set!    r args)
+  (prc-params-set! r args)
   (node-children-set! r (list call))
   ;; hidden. you need to know it to get it
   (let* ((eta-id  (genid (var-id prim-var)))
          (eta-var (make-global-var eta-id #f))
-         (def     (make-def #f (list r) eta-var)))
+         (def (make-def #f (list r) eta-var)))
     (fix-children-parent! def)
-    (var-def! eta-var def)
+    (var-def-set! eta-var def)
     (add-extra-code def)
     eta-var))
 
 (define* (define-primitive name nargs encoding #:optional (uns-res? #f))
   (let* ((prim (make-primitive nargs #f #f uns-res?))
-         (var  (make-primitive-var name prim)))
+         (var (make-primitive-var name prim)))
     ;; eta-expansion, for higher-order uses
-    (primitive-eta-expansion! prim (create-eta-expansion var nargs))
+    (primitive-eta-expansion-set! prim (create-eta-expansion var nargs))
     ;; we need to set env directly, since we create the variables ourselves
     (set-global-env! (cons var global-env))
-    (set! primitive-encodings 
+    (set! primitive-encodings
           (assoc-set! primitive-encodings name encoding))))
 
-;; generate primitives
-(define-primitive '%halt 0 0)
-(define-primitive 'pair? 1 1)
-(define-primitive 'cons 2 2)
-(define-primitive 'car 1 3)
-(define-primitive 'cdr 1 4)
-(define-primitive 'set-car! 2 5 #:unspecified-result)
-(define-primitive 'set-cdr! 2 6 #:unspecified-result)
-(define-primitive 'null? 1 7)
-(define-primitive 'number? 1 8)
-(define-primitive '= 2 9)
-(define-primitive '%+ 2 10)
-(define-primitive '%- 2 11)
-(define-primitive '%mul-non-neg 2 12)
-(define-primitive '%div-non-neg 2 13)
-(define-primitive '%rem-non-neg 2 14)
-(define-primitive '< 2 15)
-(define-primitive '> 2 16)
-(define-primitive 'logior 2 17)
-(define-primitive 'logxor 2 18)
-(define-primitive 'eq? 2 19)
-(define-primitive 'not 1 20)
-(define-primitive 'symbol? 1 21)
-(define-primitive 'boolean? 1 22)
-(define-primitive 'string? 1 23)
-(define-primitive 'string->list 1 24)
-(define-primitive 'list->string 1 25)
-(define-primitive 'u8vector? 1 26)
-(define-primitive '%make-u8vector 1 27)
-(define-primitive 'u8vector-ref 2 28)
-(define-primitive 'u8vector-set! 3 29 #:unspecified-result)
-(define-primitive 'u8vector-length 1 30)
-(define-primitive 'return 1 31)
-(define-primitive 'pop 0 32 #:unspecified-result)
-(define-primitive 'get-cont 0 33)
-(define-primitive 'graft-to-cont 2 34 #:unspecified-result)
-(define-primitive 'return-to-cont 2 35)
-(define-primitive '%sleep 1 36 #:unspecified-result)
-(define-primitive '%set-led! 1 37 #:unspecified-result)
+(include "gen-primitives.scm") ; load BSP defined primitives
 
 ;; Since constant folding is a compiler-only concept, it doesn't make
 ;; much sense to add folders to primitives in the VM, where primitives
@@ -105,7 +67,7 @@
 
 (define (add-constant-folder name folder)
   (let ((prim (var-primitive (env-lookup global-env name))))
-    (primitive-constant-folder! prim folder)))
+    (primitive-constant-folder-set! prim folder)))
 
 (define folders
   `((number? . ,number?)

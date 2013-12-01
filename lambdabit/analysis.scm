@@ -30,22 +30,22 @@
              ;; to be constants
              ;; below fails if no definition (e.g. primitives), or mutable
              (not (cst? (var-val var))))
-    (var-needed?! var #t)
+    (var-needed?-set! var #t)
     (let ((val (var-val var)))
       (when (and val (side-effect-less? val))
         (mark-needed-global-vars! val)))))
 
 (define (mark-needed-global-vars! node)
-  (match node
-    (('ref _ '() var)
+  (match (->list node)
+    (('ref _ () var)
      (mark-var! var))
     (('def _ (val) _)
      (when (not (side-effect-less? val))
        (mark-needed-global-vars! val)))
-    (('or ('? cst? node) ('? set? node) ('? if*? node) ('? prc? node)
-          ('? call? node) ('? seq? node))
+    ((or (? %cst?) (? %set?) (? %if*?) (? %prc?)
+         (? %call?) (? %seq?))
      (for-each mark-needed-global-vars! (node-children node)))
-    (else (compiler-error "unknown expression type" node))))
+    (else (compiler-error "mark-needed-global-vars!: unknown expression type" node))))
 
 ;; A lambda needs a closure if it has rest args, or if forced to because of
 ;; how one of its references uses it.
@@ -139,17 +139,17 @@
           (fv node)))
 
 (define (fv node)
-  (match node
-    ((? cst? node)
+  (match (->list node)
+    ((? %cst?)
      '()) ; empty varset
-    (('ref _ '() var)
+    (('ref _ () var)
      (list var)) ; singleton varset
     (('def _ (val) var)
      (append (fv val) var))
     (('set _ (val) var)
      (append (fv val) var))
     (('prc _ (body) params _ _)
-     (set-subtract (fv body) params))
-    ((or (? if*? node) (? call? node) (? seq? node))
+     (set-subtract (fv body) (map ->list params)))
+    ((or (? %if*?) (? %call?) (? %seq?))
      (apply lset-union equal? (map fv (node-children node))))
-    (else (compiler-error "unknown expression type" node))))
+    (else (compiler-error "fv: unknown expression type" node))))

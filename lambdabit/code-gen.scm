@@ -26,7 +26,7 @@
          (stk (stack-extend #f
                             nb-push
                             (stack-discard nb-pop (env-local env)))))
-    (context-add-instr (context-env! ctx (env-local! env stk))
+    (context-add-instr (context-change-env ctx (env-change-local env stk))
                        instr)))
 
 (define (gen-entry nparams rest? ctx)
@@ -39,7 +39,7 @@
   (gen-push-constant #f ctx))
 
 (define (gen-push-local-var var ctx)
-  (let ([i (find-local-var var (context-env ctx))])
+  (let ((i (find-local-var var (context-env ctx))))
     (if (>= i 0)
         (gen-push-stack i ctx)
         (gen-push-stack ; in the closed env, past the local variables

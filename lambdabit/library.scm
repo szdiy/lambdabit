@@ -365,4 +365,4 @@
                               (u8vector-ref source source-start))
                (u8vector-copy! source (+ source-start 1)
                                target (+ target-start 1)
-《                               (- n 1))))))
+                               (- n 1))))))

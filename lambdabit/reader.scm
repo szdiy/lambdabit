@@ -27,6 +27,6 @@
         (call-with-input-file f get-all-exprs-from-port)
         (error read-program "The file doesn't exist!" f)))
   (define the-library
-    `(,@(read-lib "library.scm")        ; architecture-independent
-      ,@(read-lib "arch-library.scm"))) ; architecture-dependent 
-  `(,@the-library ,(get-all-exprs-from-port port)))
+    `(,@(read-lib (->lib "library.scm"))        ; architecture-independent
+      ,@(read-lib (->lib "arch-library.scm")))) ; architecture-dependent 
+  `(,@the-library ,@(get-all-exprs-from-port port)))

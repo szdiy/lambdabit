@@ -57,7 +57,7 @@
                (('ref _ _ (? immutable-var? (app var-val proc)))
                 ;; ref to an immutable var bound to a lambda, we're generous
                 proc)
-               ((? prc? proc)
+               ((? %prc? proc)
                 proc)
                (else (fail!))))
             ;; We copy the entire proc to make sure that the body always has a parent.

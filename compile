@@ -1,4 +1,5 @@
-#! /bin/bash
+#!/bin/bash
 
-guile -L ./ -c "((@ (lambdabit compile) compile) $@)"
-
+args="$@"
+guile -c "(display \"$args\")(newline)"
+guile -L ./ -c "(apply (@ (lambdabit compile) compile) (if (string-null? \"$args\") '() (string-split \"$args\" #\sp)))"

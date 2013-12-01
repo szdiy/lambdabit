@@ -58,7 +58,7 @@
      (e e) ; can be encoded directly
      ((assoc o constants)
       => (lambda (x) (vector-ref (cdr x) 0)))
-     (else (compiler-error "unknown object" obj)))))
+     (else (compiler-error "encode-constant: unknown object" obj)))))
 
 ;; TODO actually, seem to be in a pair, scheme object in car, vector in cdr
 ;; constant objects are represented by vectors

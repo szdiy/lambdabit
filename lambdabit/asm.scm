@@ -562,15 +562,16 @@
 (define (asm-float->exact-exponential-format x)
   (let ((z (asm-float->inexact-exponential-format x)))
     (let ((y (car z)))
-      (cond ((not (< y asm-inexact-+2))
-             (set-car! z asm-ieee-+m-min)
-             (set-cdr! z asm-ieee-e-bias-plus-1))
-            ((not (< asm-inexact--2 y))
-             (set-car! z asm-ieee--m-min)
-             (set-cdr! z asm-ieee-e-bias-plus-1))
-            (else
-             (set-car! z
-               (truncate (inexact->exact (* (car z) asm-inexact-m-min))))))
+      (cond 
+       ((not (< y asm-inexact-+2))
+        (set-car! z asm-ieee-+m-min)
+        (set-cdr! z asm-ieee-e-bias-plus-1))
+       ((not (< asm-inexact--2 y))
+        (set-car! z asm-ieee--m-min)
+        (set-cdr! z asm-ieee-e-bias-plus-1))
+       (else
+        (set-car! z
+                  (truncate (inexact->exact (* (car z) asm-inexact-m-min))))))
       (set-cdr! z (- (cdr z) asm-ieee-m-bits))
       z)))
 

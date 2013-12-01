@@ -67,7 +67,12 @@
 (define-record-type seq (parent node))   ; children: (body ...)
 
 ;; parsing helpers
-(define (extract-ids pattern) pattern) ; now we just return the list as ids
+;; extract the args from cons to list, say, (a b . c) ==> (a b c)
+(define (extract-ids pattern)
+  (match pattern
+    ((a . b) `(,a ,@(extract-ids b)))
+    (_ (cons pattern '()))))
+
 ;; '(a b . c) is not-list, but '(a b c) is list
 ;; FIXME: so ugly
 (define (has-rest-param? pattern) (not (list? pattern))) 
@@ -76,7 +81,7 @@
 
 (define (create-ref v)
   (define r (make-ref #f '() v)) ; parent needs to be set by caller
-  (var-refs! v (cons r (var-refs v)))
+  (var-refs-set! v (cons r (var-refs v)))
   r)
 ;; Needs to be called every time we remove a ref from the AST to avoid
 ;; dangling references which hurt analysis precision.
@@ -86,14 +91,14 @@
   (unless (memq r refs)
     (compiler-error "discard-ref: ref is not in the variable's refs"
                     (var-id var)))
-  (var-refs! var (remq r refs)))
+  (var-refs-set! var (remq r refs)))
 (define (discard-set s)
   (define var  (ref-var s))
   (define sets (var-sets var))
   (unless (memq s sets)
     (compiler-error "discard-set: set is not in the variable's sets"
                     (var-id var)))
-  (var-sets! var (remq s sets)))
+  (var-sets-set! var (remq s sets)))
 
 ;; Crawls e and discards any refs, and sets it encounters, so that e can
 ;; be dropped without leaving dangling references.
@@ -156,7 +161,7 @@
      ((any (lambda (x) (var=? var x)) substs) => cdr)
      (else var)))
   (define new
-    (match e
+    (match (->list e)
       ;; parent is left #f, caller must set it
       ;; children are copied below
       (('cst _ _ val) ; no need to copy val
@@ -164,7 +169,7 @@
       (('ref _ _ var) ; we may need to substitute
        (create-ref (maybe-substitute-var var))) ; registers the reference
       (('def _ _ var) ; only at the top-level, makes no sense to copy
-       (compiler-error "copying the definition of" (var-id var)))
+       (compiler-error "copy-node: copying the definition of" (var-id var)))
       (('set _ _ var) ; as above
        (make-set #f '() (maybe-substitute-var var)))
       (('if* _ _)
@@ -199,20 +204,20 @@
 ;; Pretty-printer, mostly for debugging
 
 (define (node->expr node)
-  (match node
-    (('cst _ '() val)
+  (match (->list node)
+    (('cst _ () val)
      (if (self-eval? val)
          val
          (list 'quote val)))
-    (('ref _ '() var)
+    (('ref _ () var)
      (var-bare-id var))
-    (('def _ `(,rhs) var)
+    (('def _ (rhs) var)
      (list 'define (var-bare-id var) (node->expr rhs)))
-    (('set _ `(,rhs) var)
-     (list 'set!   (var-bare-id var) (node->expr rhs)))
-    (('if* _ `(,tst ,thn ,els))
+    (('set _ (rhs) var)
+     (list 'set! (var-bare-id var) (node->expr rhs)))
+    (('if* _ (tst thn els))
      (list 'if (node->expr tst) (node->expr thn) (node->expr els)))
-    (('prc _ `(,body) params rest? _)
+    (('prc _ (body) params rest? _)
      (define (build-pattern params rest?)
        (cond 
         ((null? params) '())
@@ -227,4 +232,4 @@
         ,(node->expr body)))
     (('call _ children) (map node->expr children))
     (('seq _ children) (cons 'begin (map node->expr children)))
-    (else (compiler-error "unknown expression type" node))))
+    (else (compiler-error "node->expr: unknown expression type" node))))

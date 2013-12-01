@@ -17,20 +17,58 @@
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-4)
   #:use-module (srfi srfi-41)
+  #:use-module (rnrs records syntactic)
+  #:use-module (rnrs records procedural)
+  #:use-module (rnrs records inspection)
   #:use-module (ice-9 control)
   #:use-module (ice-9 regex)
   #:export (reset))
 
 (module-export-all! (current-module))
 
+(define-syntax-rule (-? o) 
+  (lambda (x) (and (list? x) (eq? (car x) o))))
+
+(define *pred-list*
+  '(cst ref prc if* call seq def set))
+
+(define (gen-inner-pred)
+  (for-each (lambda (n)
+              (module-define! (current-module) (symbol-append '% n '?) (-? n)))
+            *pred-list*))
+
+(gen-inner-pred)
+
+(define (->list node) (record->list node))
+
+(define* (record->list record #:optional (alist #f))
+  (define (record-ref rtd k)
+    ((record-accessor rtd k) record))
+  (define (gen-val rtd k i)
+    (let ((v (record-ref rtd i)))
+      (if alist
+          (cons k v)
+          v)))
+  (let* ((rtd (record-rtd record))
+         (p (record-type-parent rtd))
+         (name (record-type-name rtd))
+         (pfields (if p (vector->list (record-type-field-names p)) '()))
+         (plen (if p (length pfields) 0))
+         (fields (vector->list (record-type-field-names rtd)))
+         (len (length fields)))
+    (append `(,name 
+              ,@(map (lambda (k i) (gen-val p k i)) pfields (iota plen))
+              ,@(map (lambda (k i) (gen-val rtd k i)) fields (iota len))))))
+
+(define-syntax get-file-ext               
+  (syntax-rules ()
+    ((_ filename)
+     (substring/shared filename
+                       (1+ (string-index-right filename #\.))))))
+
 (define (set-subtract s1 s2) (lset-difference equal? s1 s2))
 
 (define (hash->list ht) (hash-map->list cons ht))
-
-(define (get-the-file args) 
-  (unless (< (length args) 2)
-    (last args)
-    (error get-the-file "Please specify a valid file!")))
 
 (define-syntax-rule (begin0 expr body ...)
   (call-with-values
@@ -117,3 +155,8 @@
 (define print-asm (make-parameter #f))
 (define show-status (make-parameter #f))
 (define outfile (make-parameter #f))
+(define current-libpath (make-parameter "lambdabit"))
+(define default-outfile (make-parameter "a.hex"))
+
+(define-syntax-rule (->lib file)
+  (format #f "~a/~a" (current-libpath) file))

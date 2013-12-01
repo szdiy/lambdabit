@@ -14,21 +14,17 @@
 ;;  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 (define-module (lambdabit ir)
+  #:use-module (lambdabit utils)
   #:use-module (lambdabit ast)
   #:use-module (lambdabit env)
   #:use-module (ice-9 q)
-  #:use-module (ice-9 match)
-  #:use-module (srfi srfi-9)
+  #:use-module (ice-9 match) 
+  #:use-module ((rnrs) #:select (define-record-type))
   #:use-module (srfi srfi-1))
 
 (module-export-all! (current-module))
 
-(define-record-type context
-  (make-context code env env2)
-  context?
-  (code context-code context-code!)
-  (env context-env context-env!)
-  (env2 context-env2 context-env2!))
+(define-record-type context (fields code env env2))
 
 (define (context-change-code ctx code)
   (make-context code
@@ -56,63 +52,53 @@
                 #f))
 
 (define (context-make-label ctx)
-  (let ((r (context-code! ctx (code-make-label (context-code ctx)))))
+  (let ((r (context-change-code ctx (code-make-label (context-code ctx)))))
     (values r (code-last-label (context-code r)))))
 
 (define (context-add-bb ctx label)
-  (context-code! ctx (code-add-bb (context-code ctx) label)))
+  (context-change-code ctx (code-add-bb (context-code ctx) label)))
 
 (define (context-add-instr ctx instr)
-  (context-code! ctx (code-add-instr (context-code ctx) instr)))
+  (context-change-code ctx (code-add-instr (context-code ctx) instr)))
 
 ;; Representation of code.
 
-(define-record-type code
-  (make-code last-label rev-bbs)
-  code?
-  (last-label code-last-label code-last-label!)
-  (rev-bbs code-rev-bbs code-rev-bbs!))
-
-(define-record-type bb
-  (make-bb label rev-instrs)
-  bb?
-  (label bb-label)
-  (rev-instrs bb-rev-instrs bb-rev-instrs!))
+(define-record-type code (fields last-label rev-bbs))
+(define-record-type bb (fields label rev-instrs))
 
 (define (make-init-code)
   (make-code 0
              (list (make-bb 0 (list)))))
 
 (define (code-make-label code)
-  (code-last-label! code (1+ (code-last-label code))))
+  (make-code (+ (code-last-label code) 1)
+             (code-rev-bbs code)))
 
 (define (code-add-bb code label)
-  (code-rev-bbs! code 
-                 (cons (make-bb label '())
-                       (code-rev-bbs code))))
+  (make-code (code-last-label code)
+             (cons (make-bb label '())
+                   (code-rev-bbs code))))
 
 (define (code-add-instr cur-code instr)
-  (match cur-code
-    ((code last-label `(,(bb label rev-instrs) . ,rest))
+  (match (->list cur-code)
+    (('code last-label (($ bb p label rev-instrs) . rest))
      (make-code last-label
                 (cons (make-bb label
                                (cons instr rev-instrs))
                       rest)))))
 
-
 ;; Representation of compile-time stack.
 
 ;; NOTE: this stack implementation has side-effect
 (define* (make-stk #:optional (lst #f)) ; NOTE: make-stack exists in Guile
-  (if lst
-      (let ((stk (make-q)))
-        (for-each enq! lst)
-        stk)
-      (make-q)))
+  (let ((stk (make-q)))
+    (and lst (for-each (lambda (x) (enq! stk x)) lst))
+    stk))
 (define stack-slots car)
 (define stack-size q-length)
 (define stack-pop! q-pop!)
 (define stack-push! q-push!)
+(define stack-empty? q-empty?)
 
 (define (make-init-stack)
   (make-stk))
@@ -122,22 +108,26 @@
   (sync-q! stk))
 
 (define (stack-discard nb-slots stk)
-  (set-car! stk (list-tail (stack-slots stk) nb-slots))
+  (unless (stack-empty? stk)
+    (set-car! stk (list-tail (stack-slots stk) nb-slots)))
   (sync-q! stk))
 
 ;; Representation of compile-time environment.
 
-(define-record-type env
-  (make-env local closed)
-  env?
-  (local env-local env-local!)
-  (closed env-closed env-closed!))
+(define-record-type env (fields local closed))
 
 (define (make-init-env)
   (make-env (make-init-stack)
             '()))
 
+(define (env-change-local env local)
+  (make-env local (env-closed env)))
+
+(define (env-change-closed env closed)
+  (make-env (env-local env) closed))
+
 (define (find-local-var var env)
   (define target? (lambda (x) (eq? x var)))
+  (if (not (list-index target? (env-closed env))) (error "invalid var" var))
   (or (list-index target? (stack-slots (env-local env)))
-      (- (+ (list-index target? (env-closed env)) 1))))
+      (and=> (list-index target? (env-closed env)) (lambda (x) (- (1+ x))))))
