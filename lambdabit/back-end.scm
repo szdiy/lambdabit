@@ -31,7 +31,7 @@
   (define (fix instr)
     (define (make-new-label label)
       (bb-label (vector-ref bbs label)))
-    (match instr
+    (match (->list instr)
       (`(,(and opcode (or 'closure 'call-toplevel 'jump-toplevel 'goto)) ,arg)
        (list opcode (make-new-label arg)))
       (`(goto-if-false ,a1 ,a2)
@@ -43,7 +43,7 @@
       (for-each
        (lambda (bb ll)
          (when (> (vector-ref ref-counts ll) 0)
-           (match bb
+           (match (->list bb)
              (('bb new-label rev-instrs)
               (vector-set! new-bbs new-label
                            (make-bb new-label (map fix rev-instrs))))
@@ -61,11 +61,11 @@
   (let ((i (either (iota (vector-length bbs)))))
     (let* ((bb (vector-ref bbs i))
            (rev-instrs (bb-rev-instrs bb)))
-      (bb-rev-instrs!
+      (bb-rev-instrs-set!
        bb
-       (map (match-lambda
-              (`(,(and opcode (or 'call-toplevel 'jump-toplevel)) ,arg)
-               `(,opcode ,(prc-entry-label arg)))
-              (instr
-               instr))
+       (map (lambda (instr)
+              (match (->list instr)
+                (`(,(and opcode (or 'call-toplevel 'jump-toplevel)) ,arg)
+                 `(,opcode ,(prc-entry-label arg)))
+                (instr instr)))
             rev-instrs)))))

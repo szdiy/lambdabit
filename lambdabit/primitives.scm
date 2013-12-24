@@ -38,7 +38,7 @@
   (prc-params-set! r args)
   (node-children-set! r (list call))
   ;; hidden. you need to know it to get it
-  (let* ((eta-id  (genid (var-id prim-var)))
+  (let* ((eta-id (genid (var-id prim-var) 'prim-))
          (eta-var (make-global-var eta-id #f))
          (def (make-def #f (list r) eta-var)))
     (fix-children-parent! def)

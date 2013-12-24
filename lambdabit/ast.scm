@@ -49,11 +49,11 @@
 ;; If v is defined, return the node corresponding to its value.
 ;; Returns #f if something goes wrong.
 (define (var-val v)
-  (define def (var-def v))
-  (and (immutable-var? v)
-       def
-       (not (prc? def)) ; var defined in a lambda, no fixed value
-       (child1 def)))   ; rhs of a define
+  (let ((def (var-def v)))
+    (and (immutable-var? v)
+         def
+         (not (prc? def))  ; var defined in a lambda, no fixed value
+         (child1 def))))   ; rhs of a define
 
 (define-record-type cst (parent node) (fields val))
 (define-record-type ref (parent node) (fields var))
@@ -64,18 +64,22 @@
   (parent node)        ; children: (body)
   (fields (mutable params) rest? (mutable entry-label)))
 (define-record-type call (parent node))   ; children: (op . args)
-(define-record-type seq (parent node))   ; children: (body ...)
+(define-record-type seq (parent node))  ; children: (body ...)
 
 ;; parsing helpers
 ;; extract the args from cons to list, say, (a b . c) ==> (a b c)
 (define (extract-ids pattern)
   (match pattern
-    ((a . b) `(,a ,@(extract-ids b)))
-    (_ (cons pattern '()))))
+    ((a . b) `(,a ,@(extract-ids b))) ; (lambda (a b . c) ...)
+    (() '()) ; (lambda () ...)
+    ((? list?) pattern) ; (lambda (a b c) ...)
+    (_ (cons pattern '())))) ; (lambda args ...)
 
-;; '(a b . c) is not-list, but '(a b c) is list
-;; FIXME: so ugly
-(define (has-rest-param? pattern) (not (list? pattern))) 
+;; '(a b . c) is not-list but pair, and '(a b c) is list
+(define (has-rest-param? pattern)
+  (match pattern
+    ((a . b) #t)
+    (else #f)))
 
 ;; AST construction helpers
 
@@ -128,6 +132,7 @@
     (compiler-error "substitute-child!: old is not in children"
                     (node->expr old)))
   (node-parent-set! new parent)
+  ;; copy the child if it's the desendant of old
   (node-children-set! parent (map (lambda (x) (if (eq? x old) new x))
                                   children))
   (discard-node! old parent))
@@ -175,16 +180,16 @@
       (('if* _ _)
        (make-if* #f '()))
       (('prc _ _ params rest? entry)
-       (define new (make-prc #f '() '() rest? entry))
-       ;; we need to create new parameters, and replace the old ones in body
-       ;; Note: with Racket identifiers being used for variables, we'll need
-       ;; to freshen the new vars, otherwise the new ones will be
-       ;; free-identifier=? with the old ones, and we don't want that!
-       (define (copy-var v)
-         (make-local-var (genid (var-id v)) new))
-       (define new-params (map copy-var params))
-       (prc-params-set! new new-params)
-       new)
+       (let* ((new (make-prc #f '() '() rest? entry))
+              ;; we need to create new parameters, and replace the old ones in body
+              ;; Note: with Racket identifiers being used for variables, we'll need
+              ;; to freshen the new vars, otherwise the new ones will be
+              ;; free-identifier=? with the old ones, and we don't want that!
+              (copy-var (lambda (v) (make-local-var (genid (var-id v)) new)))
+              (new-params (map copy-var params)))
+         (foramt #t "Enter this anyway: new-params ==> ~a~%" new-params)
+         (prc-params-set! new new-params)
+         new))
       (('call _ _)
        (make-call #f '()))
       (('seq _ _)
@@ -196,6 +201,7 @@
         (append (map cons (prc-params e) (prc-params new))
                 substs)
         substs))
+  (format #t "anyway:~%")
   (node-children-set! new 
                       (map (lambda (c) (copy-node c new-substs)) (node-children e)))
   (fix-children-parent! new)

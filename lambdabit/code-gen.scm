@@ -14,14 +14,32 @@
 ;;  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 (define-module (lambdabit code-gen)
-  #:use-module (lambdabit ir))
-
-(module-export-all! (current-module))
+  #:use-module (lambdabit ir)
+  #:export (gen-instruction
+            gen-entry 
+            gen-push-constant
+            gen-push-unspecified
+            gen-push-local-var
+            gen-push-stack
+            gen-push-global
+            gen-set-global
+            gen-call
+            gen-jump
+            gen-call-toplevel
+            gen-jump-toplevel
+            gen-goto
+            gen-goto-if-false
+            gen-closure
+            gen-prim
+            gen-pop
+            gen-return))
+(define ->list (@ (lambdabit utils) ->list))
 
 ;; Code generation utility.
 ;; Each of these adds an IR instruction to the code stream.
 
 (define (gen-instruction instr nb-pop nb-push ctx)
+  ;;(format #t "GEN-INSTR: ~a,~a,~a,~a~%" instr nb-pop nb-push ((@ (lambdabit utils) ->list) ctx))
   (let* ((env (context-env ctx))
          (stk (stack-extend #f
                             nb-push
@@ -29,22 +47,26 @@
     (context-add-instr (context-change-env ctx (env-change-local env stk))
                        instr)))
 
+;; function entry
 (define (gen-entry nparams rest? ctx)
   (gen-instruction `(entry ,nparams ,rest?) 0 0 ctx))
 
+;; push constant to function stack
 (define (gen-push-constant val ctx)
   (gen-instruction `(push-constant ,val) 0 1 ctx))
 
 (define (gen-push-unspecified ctx)
   (gen-push-constant #f ctx))
-
+(use-modules (ice-9 match))
+;; push local vars to function stack
 (define (gen-push-local-var var ctx)
   (let ((i (find-local-var var (context-env ctx))))
+    (format #t "ABCD: ~a~% ~{~a~^  ||  ~a~}, ==> ~a~%" var (match (context-env ctx) (($ env _ local closed) (cons (->list local) closed))) i)
     (if (>= i 0)
         (gen-push-stack i ctx)
         (gen-push-stack ; in the closed env, past the local variables
          (+ (- -1 i)
-            (length (stack-slots (env-local (context-env ctx))))) ctx))))
+            (length (stk-slots (env-local (context-env ctx))))) ctx))))
 
 (define (gen-push-stack pos ctx)
   (gen-instruction `(push-stack ,pos) 0 1 ctx))
@@ -55,12 +77,15 @@
 (define (gen-set-global var ctx)
   (gen-instruction `(set-global ,var) 1 0 ctx))
 
+;; function call
 (define (gen-call nargs ctx)
   (gen-instruction `(call ,nargs) (+ nargs 1) 1 ctx))
 
+;; jump code
 (define (gen-jump nargs ctx)
   (gen-instruction `(jump ,nargs) (+ nargs 1) 1 ctx))
 
+;; call from top-level
 (define (gen-call-toplevel nargs id ctx)
   (gen-instruction `(call-toplevel ,id) nargs 1 ctx))
 
@@ -86,5 +111,5 @@
   (gen-instruction '(pop) 1 0 ctx))
 
 (define (gen-return ctx)
-  (let ((ss (stack-size (env-local (context-env ctx)))))
+  (let ((ss (stk-size (env-local (context-env ctx)))))
     (gen-instruction '(return) ss 0 ctx)))

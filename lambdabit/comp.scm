@@ -70,9 +70,9 @@
      (gen-push-constant val ctx))
     (('ref _ () var)
      (cond 
-      ((not (var-global? var))
+      ((not (var-global? var)) ; not a global var, get from local
        (gen-push-local-var (var-bare-id var) ctx))
-      ((var-def var)
+      ((var-def var) ; var was defined
        (let ((val (var-val var))) ; non-false implies immutable
          (if (cst? val) ; immutable global, counted as cst
              (gen-push-constant (cst-val val) ctx)
@@ -92,7 +92,7 @@
 
 (define (comp-if node reason ctx)
   (match (->list node)
-    (`(if* ,_ (,tst ,thn ,els))
+    (('if* _ (tst thn els))
      (case reason
        ((none push)
         (let*-values
@@ -148,12 +148,10 @@
                        ((none) comp-node)
                        ((tail) comp-tail)
                        ((push) comp-push))))
-       (let lp ((lst children)
-                  (ctx ctx))
+       (let lp ((lst children) (ctx ctx))
          (if (null? (cdr lst))
              (rec-comp (car lst) ctx)
-             (lp (cdr lst)
-                 (comp-node (car lst) ctx))))))))
+             (lp (cdr lst) (comp-node (car lst) ctx))))))))
 
 (define (build-closure label-entry vars ctx)
   (define (build vars ctx)
@@ -178,7 +176,9 @@
        ((body-env) (prc->env node))
        ((ctx4)
         (if closure?
-            (build-closure label-entry (env-closed body-env) ctx3)
+            (begin         (format #t "node: ~a~%"  (node->expr node))
+
+            (build-closure label-entry (env-closed body-env) ctx3))
             ctx3))
        ((ctx5) (gen-goto label-continue ctx4))
        ((ctx6) (gen-entry (length (prc-params node))
@@ -195,7 +195,7 @@
 (define (prc->env prc)
   (make-env
    (let ((params (prc-params prc)))
-     (make-stk (map var-bare-id params)))
+     (make-stk (length params) (map var-bare-id params)))
    (map var-bare-id (non-global-fv prc))))
 
 (define (comp-call node reason orig-ctx)

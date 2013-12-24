@@ -46,11 +46,6 @@
                 (make-init-env)
                 #f))
 
-(define (make-init-context)
-  (make-context (make-init-code)
-                (make-init-env)
-                #f))
-
 (define (context-make-label ctx)
   (let ((r (context-change-code ctx (code-make-label (context-code ctx)))))
     (values r (code-last-label (context-code r)))))
@@ -64,7 +59,7 @@
 ;; Representation of code.
 
 (define-record-type code (fields last-label rev-bbs))
-(define-record-type bb (fields label rev-instrs))
+(define-record-type bb (fields label (mutable rev-instrs)))
 
 (define (make-init-code)
   (make-code 0
@@ -81,7 +76,7 @@
 
 (define (code-add-instr cur-code instr)
   (match (->list cur-code)
-    (('code last-label (($ bb p label rev-instrs) . rest))
+    (('code last-label (($ bb _ label rev-instrs) . rest))
      (make-code last-label
                 (cons (make-bb label
                                (cons instr rev-instrs))
@@ -89,36 +84,59 @@
 
 ;; Representation of compile-time stack.
 
-;; NOTE: this stack implementation has side-effect
-(define* (make-stk #:optional (lst #f)) ; NOTE: make-stack exists in Guile
-  (let ((stk (make-q)))
-    (and lst (for-each (lambda (x) (enq! stk x)) lst))
-    stk))
-(define stack-slots car)
-(define stack-size q-length)
-(define stack-pop! q-pop!)
-(define stack-push! q-push!)
-(define stack-empty? q-empty?)
+;;; A stack is a (make-stack size slots) where:
+;;; - size is the number of slots
+;;; - slots is a list of variables or #f in each slot
+;; NOTE: This stack implementation is non-side-effect, so it's called 'safe'.
+;; non-side-effect is important here, because we don't have to save/restore the stack
+;; explicitly, maybe less efficient, but convinient.
+(define-record-type stk (fields size slots))
 
 (define (make-init-stack)
-  (make-stk))
+  (make-stk 0 '()))
 
-(define (stack-extend x nb-slots stk)
-  (set-car! stk (append (make-list nb-slots x) (stack-slots stk)))
-  (sync-q! stk))
+(define (stack-extend x nb-slots stack)
+  (match stack
+    (($ stk _ size slots)
+     (make-stk (+ size nb-slots) (append (make-list nb-slots x) slots)))
+    (else (error stack-extend "wrong stack type!" stack))))
 
-(define (stack-discard nb-slots stk)
-  (unless (stack-empty? stk)
-    (set-car! stk (list-tail (stack-slots stk) nb-slots)))
-  (sync-q! stk))
+(define (stack-discard nb-slots stack)
+  ;;(format #t "STK-DISCARD: ~a, ~a~%" nb-slots (->list stack))
+  (match stack
+    (($ stk _ size slots)
+     (make-stk (- size nb-slots) (list-tail slots nb-slots)))
+    (else (error stack-discard "wrong stack type!" stack))))
+
+;; ;; NOTE: this stack implementation has no side-effect
+;; (define* (make-stk #:optional (lst #f)) ; NOTE: make-stack exists in Guile
+;;   (let ((stk (make-q)))
+;;     (and lst (for-each (lambda (x) (enq! stk x)) lst))
+;;     stk))
+;; (define stack-slots car)
+;; (define stack-size q-length)
+;; (define stack-pop! q-pop!)
+;; (define stack-push! q-push!)
+;; (define stack-empty? q-empty?)
+
+;; (define (make-init-stack)
+;;   (make-stk))
+
+;; (define (stack-extend x nb-slots stk)
+;;   (set-car! stk (append (make-list nb-slots x) (stack-slots stk)))
+;;   (sync-q! stk))
+
+;; (define (stack-discard nb-slots stk)
+;;   (unless (stack-empty? stk)
+;;     (set-car! stk (list-tail (stack-slots stk) nb-slots)))
+;;   (sync-q! stk))
 
 ;; Representation of compile-time environment.
 
 (define-record-type env (fields local closed))
 
 (define (make-init-env)
-  (make-env (make-init-stack)
-            '()))
+  (make-env (make-init-stack) '()))
 
 (define (env-change-local env local)
   (make-env local (env-closed env)))
@@ -128,6 +146,9 @@
 
 (define (find-local-var var env)
   (define target? (lambda (x) (eq? x var)))
-  (if (not (list-index target? (env-closed env))) (error "invalid var" var))
-  (or (list-index target? (stack-slots (env-local env)))
-      (and=> (list-index target? (env-closed env)) (lambda (x) (- (1+ x))))))
+  (format #t "find-local-var: ~a, ~a~%" var (->list env))
+  (format #t "env-local==> ~a~%" (->list (env-local env)))
+  ;;(if (not (list-index target? (env-closed env))) (error "invalid var" var))
+  (or (list-index target? (stk-slots (env-local env)))
+       (- (+ (list-index target? (env-closed env)) 1))))
+      ;;(and=> (list-index target? (env-closed env)) (lambda (x) (- (1+ x))))))

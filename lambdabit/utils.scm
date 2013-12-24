@@ -24,6 +24,7 @@
   #:use-module (ice-9 regex)
   #:export (reset))
 
+;; (use-modules (lambdabit utils) (lambdabit comp) (lambdabit reader) (lambdabit parser) (lambdabit ir) (lambdabit env) (lambdabit asm) (lambdabit analysis) (lambdabit back-end) (lambdabit code-gen) (lambdabit primitives) (lambdabit sched) (lambdabit compile) (lambdabit assembler) (lambdabit front-end) (lambdabit ast))
 (module-export-all! (current-module))
 
 (define-syntax-rule (-? o) 
@@ -94,10 +95,13 @@
 (define get-bytevector-all (@ (rnrs) get-bytevector-all))
 (define get-string-all (@ (rnrs) get-string-all))
 
-(define* (genid #:optional (prefix #f))
-  (if prefix
-      (gensym (object->string prefix))
-      (gensym)))
+(define-syntax genid
+  (syntax-rules ()
+    ((_ name prefix)
+     (gensym (string-append (object->string prefix) (object->string name))))
+    ((_ prefix)
+     (gensym (object->string prefix)))
+    ((_) (gensym))))
 
 (define* (regexp-split regex str #:optional (flags 0))
   (let ((ret (fold-matches 
@@ -132,7 +136,11 @@
 (define (either-val lst) (shift k (map k lst)))
 
 (define (in-indexed lst)
-  (apply values (either-val (map list lst (iota (length lst))))))
+  (cond
+   ((list? lst)
+    (apply values (map list lst (iota (length lst)))))
+   ((integer? lst)
+    (apply values (map list (iota lst) (iota lst))))))
 
 (define (compiler-error msg . others)
   (parameterize ((current-output-port (current-error-port)))

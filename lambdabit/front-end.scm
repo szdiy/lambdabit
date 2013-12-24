@@ -32,12 +32,14 @@
 ;;-----------------------------------------------------------------------------
 
 (define (adjust-unmutable-references! node)
-  (match node
-    (('call parent (('ref _ () var)
-                    (and child ('ref _ () (? immutable-var? v)))))
+  (match (->list node)
+    (('call parent `(,($ ref _ var) ,(and child ($ ref _ (? immutable-var? v)))))
      (=> fail!)
+     (display "000\n")
+     (format #t "call: ~a, ~a, ~a, ~a~%" parent var v child)
      (cond 
       ((var=? var (env-lookup global-env '%unbox))
+       (display "111\n")
        (substitute-child! parent node (copy-node child))
        child)
       (else (fail!))))
@@ -49,22 +51,24 @@
 
 ;; Beta reduction. Side-effectful. Returns the new node if succeeds, else #f.
 (define (beta! e)
-  (match e
+  (match (->list e)
     (('call parent (op . args))
      (=> fail!)
+     (display "222\n")
      (let* ((proc
-             (match op
-               (('ref _ _ (? immutable-var? (app var-val proc)))
+             (match (->list op)
+               (;;(ref _ _ (? immutable-var? (app var-val proc)))
+                ('ref _ _ ($ var _ (and (? immutable-var?) (? %prc? prc))))
                 ;; ref to an immutable var bound to a lambda, we're generous
-                proc)
-               ((? %prc? proc)
+                prc)
+               ((? %prc? prc)
                 proc)
                (else (fail!))))
             ;; We copy the entire proc to make sure that the body always has a parent.
             ;; Otherwise, substitution may error. Of course, only the body ends up in
             ;; the actual program.
             (new-proc (copy-node proc)))
-       (match new-proc
+       (match (->list new-proc)
          (('prc _ (body) params #f _) ; no rest arg
           (unless (= (length params) (length args))
             (fail!))
@@ -79,7 +83,9 @@
                 (and (inside? r body)
                      ;; Since we just copied the lambda, we're guaranteed that all
                      ;; the refs will be in its body.
-                     (substitute-child! (node-parent r) r (copy-node n))))
+                     (substitute-child! (node-parent r) r (copy-node n))
+                     (display "333\n")
+                     ))
               (var-refs o))))
           ;; Hook the new body up. We need to get it from new-proc, since the
           ;; original body may have been substituted away.
@@ -90,6 +96,7 @@
                   (else ; just replace the original child
                  ;; This discards e, which includes the lambda (if left-left-
                  ;; lambda) and the args. This shouldn't leave leftover nodes.
+                   (display "444\n")
                    (substitute-child! parent e (copy-node new))))
             ;; We return the new node.
             ;; Note: new may not actually be in the program. It may have been
@@ -114,12 +121,12 @@
 ;; Every time we successfully change the operator, we add it to the list.
 ;; If we see something again, we're looping, so stop there.
 (define* (inline-calls-to-calls! node #:optional (seen '()))
-  (match node
+  (match (->list node)
     (('call _ ((ref _ () (and orig-var (app var-val val))) . args))
      (=> fail!)
      (match val
        (('prc _ (body) _ #f _)
-        (match body
+        (match (->list body)
           (('call _ ((ref _ () inside-var) . inside-args))
            ;; We need to be careful to not increase code size.
            (if (and (<= (length inside-args) (length args)) ; not too many
@@ -148,7 +155,7 @@
 ;; lambdas.
 ;; This should be done after copy propagation, which exposes more of these.
 (define (inline-left-left-lambda! node)
-  (match node
+  (match (->list node)
     (('call _ (('prc _ (body) params #f _) . args))
      (=> fail!)
      (cond 
@@ -168,7 +175,7 @@
 ;;-----------------------------------------------------------------------------
 
 (define (constant-fold! node)
-  (match node
+  (match (->list node)
     ;; if we're calling a primitive
     (('call p ((ref _ () (? var-primitive op)) . args))
      (=> fail!)
@@ -194,8 +201,9 @@
     (('if* _ cs) ; if result of test is known, discard unused branch
      (=> fail!) 
      (for-each constant-fold! cs) ; fold each branch
-     (match node
+     (match (->list node)
        (('if* p ((cst _ () val) thn els))
+        (display "555\n")
         (substitute-child! p node (copy-node (if val thn els))))
        (else (fail!))))
     (('seq p cs) ; can discard effect-free non-final elements 
@@ -205,18 +213,21 @@
             (result (last new-cs))
             (before (remq result new-cs)))
        (if (and-map side-effect-less? before)
-           (substitute-child! p node (copy-node result))
+           (begin
+             (display "666\n")
+           (substitute-child! p node (copy-node result)))
            (fail!))))
     (else (for-each constant-fold! (node-children node)))))
 
 ;;-----------------------------------------------------------------------------
 
 (define (copy-propagate! expr)
-  (match expr
+  (match (->list expr)
     (('ref p () (and var (? immutable-var? (app var-val (? values val)))))
      (=> fail!)
      (define (replace! new)
        (unless (node-parent expr) (fail!)) ; no parent, stale node, ignore
+       (display "777\n")
        (substitute-child! p expr (copy-node new))
        (copy-propagate! p)) ;  there may be more to do, start our parent again
        ;; Single use, copy-propagate away! Can't increase code size.
@@ -230,7 +241,7 @@
            (fail!)
            (replace! val)))
       (else ; multiple uses, but maybe we can do it anyway
-       (match val
+       (match (->list val)
          ((or ('ref _ () _) ('cst _ () _))
           ;; constants are ok. even if they're large, they're just a
           ;; pointer into ROM, where the constant would have been anyway

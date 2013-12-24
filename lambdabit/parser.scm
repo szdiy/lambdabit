@@ -19,7 +19,8 @@
   #:use-module (lambdabit utils)
   #:use-module (lambdabit env)
   #:use-module (lambdabit ast)
-  #:use-module (lambdabit analysis))
+  #:use-module (lambdabit analysis)
+  );;#:export (parse-program))
 
 (module-export-all! (current-module))
 
@@ -65,8 +66,8 @@
       ;; If we're not defining a function, forward references are
       ;; invalid.
       (match val
-        (('lambda etc ...) #t) ; defined a function
-        (else #f)))) ; defined a var 
+        (('lambda etc ...) #t) ; defining a function
+        (else #f)))) ; defining a var 
     (else 
      (list (parse 'value expr env)))))
 
@@ -149,8 +150,12 @@
                                     (cons v p)
                                     p)))
                             '() ids)))
+       ;;(format #t "MUT-VARS: ~a~%" mut-vars)
+       ;;(format #t "new-env: ~a~%" (map ->list new-env))
+       ;;(read-char)
        (cond 
         ((null? mut-vars)
+         ;; FIXME: why ids didn't appear in env?
          (prc-params-set! r
                           (map (lambda (id) (env-lookup new-env id))
                                ids))
