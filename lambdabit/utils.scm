@@ -1,4 +1,4 @@
-;;  Copyright (C) 2013
+;;  Copyright (C) 2013,2014
 ;;      "Mu Lei" known as "NalaGinrut" <NalaGinrut@gmail.com>
 ;;  This file is free software: you can redistribute it and/or modify
 ;;  it under the terms of the GNU General Public License as published by
@@ -21,8 +21,7 @@
   #:use-module (rnrs records procedural)
   #:use-module (rnrs records inspection)
   #:use-module (ice-9 control)
-  #:use-module (ice-9 regex)
-  #:export (reset))
+  #:use-module (ice-9 regex))
 
 ;; (use-modules (lambdabit utils) (lambdabit comp) (lambdabit reader) (lambdabit parser) (lambdabit ir) (lambdabit env) (lambdabit asm) (lambdabit analysis) (lambdabit back-end) (lambdabit code-gen) (lambdabit primitives) (lambdabit sched) (lambdabit compile) (lambdabit assembler) (lambdabit front-end) (lambdabit ast))
 (module-export-all! (current-module))
@@ -40,7 +39,7 @@
 
 (gen-inner-pred)
 
-(define (->list node) (record->list node))
+(define (->list node) (and node (record->list node)))
 
 (define* (record->list record #:optional (alist #f))
   (define (record-ref rtd k)

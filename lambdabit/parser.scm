@@ -1,4 +1,4 @@
-;;  Copyright (C) 2013
+;;  Copyright (C) 2013,2014
 ;;      "Mu Lei" known as "NalaGinrut" <NalaGinrut@gmail.com>
 ;;  This file is free software: you can redistribute it and/or modify
 ;;  it under the terms of the GNU General Public License as published by
@@ -77,9 +77,11 @@
     ((? self-eval?)
      (make-cst #f '() expr))
     ((? symbol?)
-     (let* ((v (env-lookup env expr))
-            (prim (var-primitive v))
-            (var (if (and prim (not operator-position?))
+     ;;(display expr)(newline)
+     (let* ((v (env-lookup env expr)) 
+            ;; v won't be #f anyway, it'll be created at top-level for forward-reference 
+            (prim (var-primitive v)) ; if it's a primitive?
+            (var (if (and prim (not operator-position?)) ; if not a primitive function
                      ;; We eta-expand any primitive used in a higher-order fashion.
                      (primitive-eta-expansion prim)
                      v))
@@ -91,6 +93,7 @@
              app)
            r)))
     (('set! lhs rhs)
+     (display "hit!\n")
      ;; Again, hack.
      (let ((var (env-lookup env lhs))
            (val (parse 'value rhs env)))
@@ -100,13 +103,14 @@
            (let ((r (make-set #f (list val) var)))
              (fix-children-parent! r)
              (var-sets-set! var (cons r (var-sets var)))
-             r)
+             r) ; assign to top-level
            (let* ((ref (create-ref var))
                   (bs (create-ref (env-lookup env '%box-set!)))
-                  (r (make-call #f `(,bs ,ref ,val))))
+                  (r (make-call #f (list bs ref val))))
+             (display (->list r))(newline)
              (fix-children-parent! r)
              (var-sets-set! var (cons r (var-sets var)))
-             r))))
+             r)))) ; assign to local reference
     (('quote datum)
      (make-cst #f '() datum))
     (('if tst thn els ...)
@@ -234,14 +238,12 @@
                       (if ,v ,v (or ,@rest))))
                 env)))
     ((op args ...)
-     (=> back!)
-     (if (is-unimplemented-op? op)
-         (compiler-error "parse: the compiler does not implement the special form" op)
-         (back!)))
-    ((op args ...)
-     (let* ((exprs (cons (parse 'value op env #t)
+     (when (is-unimplemented-op? op)
+       (compiler-error "parse: the compiler does not implement the special form" op))
+     (let* ((exprs (cons (parse 'value op env 'operator-position)
                          (map (lambda (e) (parse 'value e env)) args)))
             (r (make-call #f exprs)))
+       (and (eq? op '-) (format #t "MMR: ~a, ~a~%" exprs (->list r)))
        (fix-children-parent! r)
        r))
     (else (compiler-error "parse: unknown expression" expr))))

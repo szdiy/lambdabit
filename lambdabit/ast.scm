@@ -1,4 +1,4 @@
-;;  Copyright (C) 2013
+;;  Copyright (C) 2013,2014
 ;;      "Mu Lei" known as "NalaGinrut" <NalaGinrut@gmail.com>
 ;;  This file is free software: you can redistribute it and/or modify
 ;;  it under the terms of the GNU General Public License as published by
@@ -43,7 +43,7 @@
 
 (define (child1 node) (car (node-children node)))
 
-(define (immutable-var? var) (null? (var-sets var)))
+(define (immutable-var? var) (and (var? var) (null? (var-sets var))))
 (define (mutable-var? var) (not (immutable-var? var)))
 
 ;; If v is defined, return the node corresponding to its value.
@@ -73,7 +73,7 @@
     ((a . b) `(,a ,@(extract-ids b))) ; (lambda (a b . c) ...)
     (() '()) ; (lambda () ...)
     ((? list?) pattern) ; (lambda (a b c) ...)
-    (_ (cons pattern '())))) ; (lambda args ...)
+    (else (cons pattern '())))) ; (lambda args ...)
 
 ;; '(a b . c) is not-list but pair, and '(a b c) is list
 (define (has-rest-param? pattern)
@@ -120,28 +120,32 @@
 (define (create-prc children params rest?)
   (make-prc #f children params rest?
             #f)) ; entry-label, will be filled later
+(define (create-null-prc rest? entry)
+  (make-prc #f '() '() rest? entry))
 
-(define (fix-children-parent! p)
-  (for-each (lambda (x) (node-parent-set! x p)) (node-children p)))
+;; every children of the specified node should point to same parent, the specified node
+(define (fix-children-parent! n)
+  (for-each (lambda (c) (node-parent-set! c n)) (node-children n)))
 
 ;; Note: if new is a descendant of old, it needs to be copied before begin
 ;; substituted in. This is because we discard old and all its descendants.
 (define (substitute-child! parent old new)
   (define children (node-children parent))
+  (define (fix c) (map (lambda (x) (if (eq? x old) new x)) c))
   (unless (memq old children)
     (compiler-error "substitute-child!: old is not in children"
                     (node->expr old)))
   (node-parent-set! new parent)
   ;; copy the child if it's the desendant of old
-  (node-children-set! parent (map (lambda (x) (if (eq? x old) new x))
-                                  children))
+  (node-children-set! parent (fix children))
   (discard-node! old parent))
 
-;; Is c a descendant of p?
-(define (inside? c p)
-  (or (eq? c p)
-      (and c ; not at the top of the program
-           (inside? (node-parent c) p))))
+;; Is child a descendant of parent?
+(define (inside? child parent)
+  (cond
+   ((eq? child parent) #t) ; NOTE: parent could be #f
+   ((not child) #f) ; not at the top of the program
+   (else (inside? (node-parent child) parent))))
 
 ;; Splice the child begin inside the parent begin in place of the old node.
 (define (splice-begin! old child parent)
@@ -160,13 +164,14 @@
 ;; Optionally takes a list of variable substitutions. When we copy lambdas,
 ;; we need to create new var objects, otherwise the copy's variables will be
 ;; the same as the original's.
-(define* (copy-node e #:optional (substs '())) ; substs : (listof (pair var var))
+(define* (copy-node n #:optional (substs '())) ; substs : (listof (pair var var))
   (define (maybe-substitute-var var)
     (cond 
-     ((any (lambda (x) (var=? var x)) substs) => cdr)
+     ;; element of substs should be pair of vars, or it's wrong
+     ((assoc var substs var=?) => cdr)
      (else var)))
   (define new
-    (match (->list e)
+    (match (->list n)
       ;; parent is left #f, caller must set it
       ;; children are copied below
       (('cst _ _ val) ; no need to copy val
@@ -180,16 +185,13 @@
       (('if* _ _)
        (make-if* #f '()))
       (('prc _ _ params rest? entry)
-       (let* ((new (make-prc #f '() '() rest? entry))
+       (let* ((new-prc (create-null-prc rest? entry))
               ;; we need to create new parameters, and replace the old ones in body
-              ;; Note: with Racket identifiers being used for variables, we'll need
-              ;; to freshen the new vars, otherwise the new ones will be
-              ;; free-identifier=? with the old ones, and we don't want that!
-              (copy-var (lambda (v) (make-local-var (genid (var-id v)) new)))
+              (copy-var (lambda (v) (make-local-var (genid (var-id v)) new-prc)))
               (new-params (map copy-var params)))
-         (foramt #t "Enter this anyway: new-params ==> ~a~%" new-params)
-         (prc-params-set! new new-params)
-         new))
+         (format #t "Enter this anyway: new-params ==> ~a~%" new-params)
+         (prc-params-set! new-prc new-params)
+         new-prc))
       (('call _ _)
        (make-call #f '()))
       (('seq _ _)
@@ -198,12 +200,11 @@
   ;; for the original's
   (define new-substs
     (if (prc? new)
-        (append (map cons (prc-params e) (prc-params new))
-                substs)
+        (append (map cons (prc-params n) (prc-params new)) substs)
         substs))
-  (format #t "anyway:~%")
+  ;; (format #t "anyway:~%")
   (node-children-set! new 
-                      (map (lambda (c) (copy-node c new-substs)) (node-children e)))
+                      (map (lambda (c) (copy-node c new-substs)) (node-children n)))
   (fix-children-parent! new)
   new)
 

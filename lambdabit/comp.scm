@@ -1,4 +1,4 @@
-;;  Copyright (C) 2013
+;;  Copyright (C) 2013,2014
 ;;      "Mu Lei" known as "NalaGinrut" <NalaGinrut@gmail.com>
 ;;  This file is free software: you can redistribute it and/or modify
 ;;  it under the terms of the GNU General Public License as published by
@@ -28,8 +28,8 @@
   #:use-module (lambdabit utils)
   #:export (comp-node))
 
-(define (comp-node node ctx)
-  (match (->list node)
+(define (comp-node n ctx)
+  (match (->list n)
     ((or (? %cst?) (? %ref?) (? %prc?))
      ctx) ; we can drop any of these if we don't care about their value
     (('def _ (rhs) var)
@@ -45,27 +45,27 @@
            (gen-set-global (var-bare-id var) ctx2))
          (comp-node rhs ctx)))
     ((? %if*?)
-     (comp-if node 'none ctx))
+     (comp-if n 'none ctx))
     ((? %call?)
-     (comp-call node 'none ctx))
+     (comp-call n 'none ctx))
     ((? %seq?)
-     (comp-seq node 'none ctx))
-    (else (compiler-error "comp-node: unknown expression type" node))))
+     (comp-seq n 'none ctx))
+    (else (compiler-error "comp-node: unknown expression type" n))))
 
-(define (comp-tail node ctx)
-  (match (->list node)
+(define (comp-tail n ctx)
+  (match (->list n)
     ((or (? %cst?) (? %ref?) (? %def?) (? %set?) (? %prc?))
-     (gen-return (comp-push node ctx)))
+     (gen-return (comp-push n ctx)))
     ((? %if*?)
-     (comp-if node 'tail ctx))
+     (comp-if n 'tail ctx))
     ((? %call?)
-     (comp-call node 'tail ctx))
+     (comp-call n 'tail ctx))
     ((? %seq?)
-     (comp-seq node 'tail ctx))
-    (else (compiler-error "comp-tail: unknown expression type" node))))
+     (comp-seq n 'tail ctx))
+    (else (compiler-error "comp-tail: unknown expression type" n))))
 
-(define (comp-push node ctx)
-  (match (->list node)
+(define (comp-push n ctx)
+  (match (->list n)
     (('cst _ () val)
      (gen-push-constant val ctx))
     (('ref _ () var)
@@ -79,19 +79,19 @@
              (gen-push-global (var-bare-id  var) ctx))))
        (else (compiler-error "comp-push: undefined variable:" (var-id var)))))
     ((or (? %def?) (? %set?))
-     (gen-push-unspecified (comp-node node ctx)))
+     (gen-push-unspecified (comp-node n ctx)))
     ((? %if*?)
-     (comp-if node 'push ctx))
+     (comp-if n 'push ctx))
     ((? %prc?)
-     (comp-prc node #t ctx))
+     (comp-prc n #t ctx))
     ((? %call?)
-     (comp-call node 'push ctx))
+     (comp-call n 'push ctx))
     ((? %seq?)
-     (comp-seq node 'push ctx))
-    (else (compiler-error "comp-push: unknown expression type" node))))
+     (comp-seq n 'push ctx))
+    (else (compiler-error "comp-push: unknown expression type" n))))
 
-(define (comp-if node reason ctx)
-  (match (->list node)
+(define (comp-if n reason ctx)
+  (match (->list n)
     (('if* _ (tst thn els))
      (case reason
        ((none push)
@@ -136,8 +136,8 @@
                               (context-env2 ctx4)))))
        ctx6))))))
 
-(define (comp-seq node reason ctx)
-  (match (->list node)
+(define (comp-seq n reason ctx)
+  (match (->list n)
     (('seq _ ())
      (case reason
        ((none) ctx)
@@ -169,26 +169,25 @@
       (gen-closure label-entry
                    (build vars ctx))))
 
-(define (comp-prc node closure? ctx)
+(define (comp-prc n closure? ctx)
   (let*-values
       (((ctx2 label-entry) (context-make-label ctx))
        ((ctx3 label-continue) (context-make-label ctx2))
-       ((body-env) (prc->env node))
+       ((body-env) (prc->env n))
        ((ctx4)
         (if closure?
-            (begin         (format #t "node: ~a~%"  (node->expr node))
-
+            (begin (format #t "node: ~a~%"  (node->expr n))
             (build-closure label-entry (env-closed body-env) ctx3))
             ctx3))
        ((ctx5) (gen-goto label-continue ctx4))
-       ((ctx6) (gen-entry (length (prc-params node))
-                          (prc-rest? node)
+       ((ctx6) (gen-entry (length (prc-params n))
+                          (prc-rest? n)
                           (context-add-bb
                            (context-change-env ctx5
                                                body-env)
                            label-entry)))
-       ((ctx7) (comp-tail (child1 node) ctx6)))
-    (prc-entry-label-set! node label-entry)
+       ((ctx7) (comp-tail (child1 n) ctx6)))
+    (prc-entry-label-set! n label-entry)
     (context-add-bb (context-change-env ctx7 (context-env ctx5))
                     label-continue)))
 
@@ -198,11 +197,11 @@
      (make-stk (length params) (map var-bare-id params)))
    (map var-bare-id (non-global-fv prc))))
 
-(define (comp-call node reason orig-ctx)
+(define (comp-call n reason orig-ctx)
   (cond
-   ((call? node)
-    (let* ((op (car (node-children node)))
-           (args (cdr (node-children node)))
+   ((call? n)
+    (let* ((op (car (node-children n)))
+           (args (cdr (node-children n)))
            (nargs (length args))
            (ctx (fold (lambda (arg ctx) (comp-push arg ctx))
                       orig-ctx args))) ; push all the arguments
@@ -246,19 +245,19 @@
               ((tail) (gen-jump nargs ctx2))
               ((push) (gen-call nargs ctx2))
               (else (gen-pop (gen-call nargs ctx2)))))))))
-       (else (compiler-error "comp-call: Invalid call site node!" node))))
+       (else (compiler-error "comp-call: Invalid call site node!" n))))
   
-(define (comp-test node label-true label-false ctx)
-  (match (->list node)
+(define (comp-test n label-true label-false ctx)
+  (match (->list n)
     (('cst _ () val)
      (let ((ctx2 (gen-goto (if val label-true label-false) ctx)))
        (context-change-env2 ctx2 (context-env ctx2))))
     ((or (? %ref?) (? %def?) (? %set?) (? %if*?)
           (? %call?) (? %seq?))
-     (let* ((ctx2 (comp-push node ctx))
+     (let* ((ctx2 (comp-push n ctx))
             (ctx3 (gen-goto-if-false label-false label-true ctx2)))
        (context-change-env2 ctx3 (context-env ctx3))))
     ((? %prc?) ; always true
      (let ((ctx2 (gen-goto label-true ctx)))
        (context-change-env2 ctx2 (context-env ctx2))))
-    (else (compiler-error "comp-test: unknown expression type" node))))
+    (else (compiler-error "comp-test: unknown expression type" n))))

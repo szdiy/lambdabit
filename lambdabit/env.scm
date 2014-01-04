@@ -1,4 +1,4 @@
-;;  Copyright (C) 2013
+;;  Copyright (C) 2013,2014
 ;;      "Mu Lei" known as "NalaGinrut" <NalaGinrut@gmail.com>
 ;;  This file is free software: you can redistribute it and/or modify
 ;;  it under the terms of the GNU General Public License as published by
@@ -64,8 +64,9 @@
 (define (var-bare-id v) (var-id v)) ; for code-generation
 
 (define (var=? x y)
-  (and (id=? (var-id x) (var-id y))   ; same symbol
-       (equal?  (var-def x) (var-def y)))) ; defined in the same place
+  (and (and (var? x) (var? y))
+       (id=? (var-id x) (var-id y))   ; same symbol
+       (equal? (var-def x) (var-def y)))) ; defined in the same place
 (define (id=? x y) (eq? x y))
 
 (define allow-forward-references? (make-parameter #t))
