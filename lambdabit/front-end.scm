@@ -37,13 +37,14 @@
 
 (define (adjust-unmutable-references! n)
   (match (->list n)
-    (('call parent (($ ref _ var) (and child ($ ref _ (? immutable-var? v)))))
+    (('call parent (($ ref _ v) (and child ($ ref _ (? immutable-var?)))))
      (=> fail!)
      ;;(display "000\n")
      ;;(format #t "call: ~a, ~a, ~a, ~a~%" parent var v child)
      (cond 
-      ((var=? var (env-lookup global-env '%unbox))
+      ((var=? v (env-lookup global-env '%unbox))
        ;;(display "111\n")
+       ;;(format #t "111: ~a~%" (->list (env-lookup global-env '%unbox)))
        (substitute-child! parent n (copy-node child))
        child)
       (else (fail!))))
@@ -55,22 +56,24 @@
 
 ;; Beta reduction. Side-effectful. Returns the new node if succeeds, else #f.
 (define (beta! e)
+  (format #t "222000: ~a~%" e)
   (match (->list e)
     (('call parent (op . args))
      (=> fail!)
-     (display "222\n")
+     (display "222\n")(display (->list op))(newline)
      (let* ((proc
-             (match (->list op)
-               (('ref _ (? immutable-var? (= var-val prc)))
+             (match op
+               (($ ref _ (? immutable-var? (= var-val proc0)))
                 ;; ref to an immutable var bound to a lambda, we're generous
-                prc)
-               ((? %prc? prc)
-                prc)
+                proc0)
+               ((? prc? proc0)
+                proc0) ; return op as proc
                (else (fail!))))
             ;; We copy the entire proc to make sure that the body always has a parent.
             ;; Otherwise, substitution may error. Of course, only the body ends up in
             ;; the actual program.
             (new-proc (copy-node proc)))
+       (format #t "new-proc: ~a~%" (->list new-proc))
        (match (->list new-proc)
          (('prc _ (body) params #f _) ; no rest arg
           (unless (= (length params) (length args)) ; FIXME: is this correct?
@@ -112,7 +115,7 @@
             ;; will change new's parent's children, as it should.)
             new)))))
      (else
-      (format #t "Warning: Invalid beta ~a" (->list e))
+      (format #t "Warning: Invalid beta ~a~%" (->list e))
       #f))) ; invalid beta, do nothing
 
 ;;-----------------------------------------------------------------------------
