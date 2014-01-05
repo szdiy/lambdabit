@@ -39,7 +39,7 @@
 
 (gen-inner-pred)
 
-(define (->list node) (and node (record->list node)))
+(define (->list n) (and n (record->list n)))
 
 (define* (record->list record #:optional (alist #f))
   (define (record-ref rtd k)
