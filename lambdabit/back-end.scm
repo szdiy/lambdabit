@@ -21,8 +21,6 @@
   #:use-module (srfi srfi-11)
   #:export (renumber-labels code->vector resolve-toplevel-labels!))
 
-(module-export-all! (current-module))
-
 ;; Back-end utilities.
 
 ;;-----------------------------------------------------------------------------
