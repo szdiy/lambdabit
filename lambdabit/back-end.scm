@@ -62,6 +62,7 @@
       (bb-rev-instrs-set!
        bb
        (map (lambda (instr)
+                (display (->list instr))(newline)
               (match (->list instr)
                 (`(,(and opcode (or 'call-toplevel 'jump-toplevel)) ,arg)
                  `(,opcode ,(prc-entry-label arg)))

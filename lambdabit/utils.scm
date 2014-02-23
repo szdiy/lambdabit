@@ -85,12 +85,6 @@
 
 (define (in-naturals) (stream-iterate 1+ 0))
 
-(define (get-all-exprs-from-port port)
-  (let lp((expr (read port)) (ret '()))
-    (cond
-     ((eof-object? expr) (reverse ret))
-     (else (lp (read port) (cons expr ret))))))
-
 (define get-bytevector-all (@ (rnrs) get-bytevector-all))
 (define get-string-all (@ (rnrs) get-string-all))
 
@@ -164,6 +158,3 @@
 (define outfile (make-parameter #f))
 (define current-libpath (make-parameter "lambdabit"))
 (define default-outfile (make-parameter "a.hex"))
-
-(define-syntax-rule (->lib file)
-  (format #f "~a/~a" (current-libpath) file))

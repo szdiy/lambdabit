@@ -18,7 +18,7 @@
   #:use-module (lambdabit ast)
   #:use-module (lambdabit env)
   #:use-module (ice-9 q)
-  #:use-module (ice-9 match) 
+  #:use-module (ice-9 match)
   #:use-module ((rnrs) #:select (define-record-type))
   #:use-module (srfi srfi-1))
 
@@ -83,6 +83,7 @@
                       rest)))))
 
 ;; Representation of compile-time stack.
+;; NOTE: this stack implementation has no side-effect
 
 ;;; A stack is a (make-stack size slots) where:
 ;;; - size is the number of slots
@@ -108,7 +109,6 @@
      (make-stk (- size nb-slots) (list-tail slots nb-slots)))
     (else (error stack-discard "wrong stack type!" stack))))
 
-;; ;; NOTE: this stack implementation has no side-effect
 ;; (define* (make-stk #:optional (lst #f)) ; NOTE: make-stack exists in Guile
 ;;   (let ((stk (make-q)))
 ;;     (and lst (for-each (lambda (x) (enq! stk x)) lst))
@@ -132,7 +132,6 @@
 ;;   (sync-q! stk))
 
 ;; Representation of compile-time environment.
-
 (define-record-type env (fields local closed))
 
 (define (make-init-env)
@@ -146,9 +145,16 @@
 
 (define (find-local-var var env)
   (define target? (lambda (x) (eq? x var)))
+  (format #t "var: ~a~%" var)
   (format #t "find-local-var: ~a, ~a~%" var (->list env))
-  (format #t "env-local==> ~a~%" (->list (env-local env)))
+  (format #t "env-closed==> ~a~%" (env-closed env))
   ;;(if (not (list-index target? (env-closed env))) (error "invalid var" var))
-  (or (list-index target? (stk-slots (env-local env)))
-       (- (+ (list-index target? (env-closed env)) 1))))
+  (let ((x (list-index target? (stk-slots (env-local env))))
+        (y (list-index target? (env-closed env))))
+    (format #t "<<< local ~a~%" x)
+    (format #t "<<< closed ~a~%" y)
+    (or x (- (1+ y)))))
+        
+;;  (or (list-index target? (stk-slots (env-local env)))
+;;       (- (+ (list-index target? (env-closed env)) 1))))
       ;;(and=> (list-index target? (env-closed env)) (lambda (x) (- (1+ x))))))

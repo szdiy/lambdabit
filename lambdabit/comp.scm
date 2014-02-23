@@ -29,14 +29,18 @@
   #:export (comp-node))
 
 (define (comp-node n ctx)
+  (begin (display "VVVVVV00")(display (->list (cadr (->list (caddr (->list ctx))))))(newline))
   (match (->list n)
     ((or (? %cst?) (? %ref?) (? %prc?))
      ctx) ; we can drop any of these if we don't care about their value
     (('def _ (rhs) var)
      (if (needs-closure? var)
-         (comp-prc rhs #f ctx)
+         (begin
+           (format #t "YES: ~a~%" (->list rhs))
+           (comp-prc rhs #f ctx))
          (if (var-needed? var)
              (let ((ctx2 (comp-push rhs ctx)))
+               (display "YES2\n")
                (gen-set-global (var-bare-id var) ctx2))
              (comp-node rhs ctx))))
     (('set _ (rhs) var)
@@ -69,6 +73,7 @@
     (('cst _ () val)
      (gen-push-constant val ctx))
     (('ref _ () var)
+     (format #t "comp-push: ~a~%" (->list var))
      (cond 
       ((not (var-global? var)) ; not a global var, get from local
        (gen-push-local-var (var-bare-id var) ctx))
@@ -76,8 +81,8 @@
        (let ((val (var-val var))) ; non-false implies immutable
          (if (cst? val) ; immutable global, counted as cst
              (gen-push-constant (cst-val val) ctx)
-             (gen-push-global (var-bare-id  var) ctx))))
-       (else (compiler-error "comp-push: undefined variable:" (var-id var)))))
+             (gen-push-global (var-bare-id var) ctx))))
+      (else (compiler-error "comp-push: undefined variable:" (var-id var)))))
     ((or (? %def?) (? %set?))
      (gen-push-unspecified (comp-node n ctx)))
     ((? %if*?)
@@ -157,12 +162,9 @@
   (define (build vars ctx)
     (if (null? vars)
         (gen-push-constant '() ctx)
-        (gen-prim 'cons
-                  2
-                  #f
+        (gen-prim 'cons 2 #f
                   (build (cdr vars)
                          (gen-push-local-var (car vars) ctx)))))
-  (display "ZZZZ")(display (->list (caddr (->list ctx))))(newline)
   (if (null? vars)
       (gen-closure label-entry
                    (gen-push-constant '() ctx))
@@ -170,16 +172,22 @@
                    (build vars ctx))))
 
 (define (comp-prc n closure? ctx)
+  (format #t "YYYYY: ~a~%" (node->expr n))
+  ;;(format #t "closure? ~a~%" closure?)
   (let*-values
       (((ctx2 label-entry) (context-make-label ctx))
+       ;;((ccc) (begin (display "ZZZZ11")(display (->list (env-local (context-env ctx2))))(newline)))
        ((ctx3 label-continue) (context-make-label ctx2))
+       ;;((ccc) (begin (display "ZZZZ22")(display (->list (env-local (context-env ctx3))))(newline)))
        ((body-env) (prc->env n))
+       ;;((ccc) (format #t "HMM: ~a~%~a~%" (->list body-env) (env-closed body-env)))
        ((ctx4)
         (if closure?
-            (begin (format #t "node: ~a~%"  (node->expr n))
-            (build-closure label-entry (env-closed body-env) ctx3))
+            (build-closure label-entry (env-closed body-env) ctx3)
             ctx3))
+       ;;((ccc) (begin (display "ZZZZ33")(display (->list (env-local (context-env ctx4))))(newline)))
        ((ctx5) (gen-goto label-continue ctx4))
+       ;;((ccc) (begin (display "ZZZZ44")(display (->list (env-local (context-env ctx5))))(newline)))
        ((ctx6) (gen-entry (length (prc-params n))
                           (prc-rest? n)
                           (context-add-bb
@@ -192,10 +200,14 @@
                     label-continue)))
 
 (define (prc->env prc)
+  ;;  (format #t "MMMMMMM: ~a~%" (node->expr prc))
   (make-env
    (let ((params (prc-params prc)))
+     (format #t "prc->env: ~a, ~a~%" (length params) params)
      (make-stk (length params) (map var-bare-id params)))
-   (map var-bare-id (non-global-fv prc))))
+   (begin
+     (format #t "prc->env: ngf ~a~%" (non-global-fv prc))
+     (map var-bare-id (non-global-fv prc)))))
 
 (define (comp-call n reason orig-ctx)
   (cond
@@ -246,14 +258,13 @@
               ((push) (gen-call nargs ctx2))
               (else (gen-pop (gen-call nargs ctx2)))))))))
        (else (compiler-error "comp-call: Invalid call site node!" n))))
-  
+
 (define (comp-test n label-true label-false ctx)
   (match (->list n)
     (('cst _ () val)
      (let ((ctx2 (gen-goto (if val label-true label-false) ctx)))
        (context-change-env2 ctx2 (context-env ctx2))))
-    ((or (? %ref?) (? %def?) (? %set?) (? %if*?)
-          (? %call?) (? %seq?))
+    ((or (? %ref?) (? %def?) (? %set?) (? %if*?) (? %call?) (? %seq?))
      (let* ((ctx2 (comp-push n ctx))
             (ctx3 (gen-goto-if-false label-false label-true ctx2)))
        (context-change-env2 ctx3 (context-env ctx3))))

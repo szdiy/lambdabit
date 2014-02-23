@@ -23,7 +23,6 @@
         (%sleep-aux wake-up)
         #f)))
 
-
 (define led2-color
   (lambda (state)
     (if (eq? state 'red)

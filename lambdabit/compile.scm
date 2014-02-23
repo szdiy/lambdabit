@@ -46,7 +46,7 @@
    -t | --status       ==> Display statistics about generated instructions.
    -o | --output       ==> Place the output into the given file.
 
- Written with GNU Guile by NalaGinrut<nalaginrut@gmail.com> (C)2013.
+ Written with GNU Guile by NalaGinrut<nalaginrut@gmail.com> (C)2013,2014.
  ")
  
 (define option-spec
@@ -80,7 +80,6 @@
       (cons "place-holder" ; getopt-long needs the first elem as the place-holder
             (list-head args (1- len)))))))
 
-
 (define (get-the-file args) 
   (if (< (length args) 1) 
       (begin (display usage) (exit 1))
@@ -98,9 +97,9 @@
      (print-asm (option-ref options 'asm #f))
      (show-status (option-ref options 'status #f))
      (outfile (option-ref options 'output #f)))
-    (format #t "~a~%" args)
-    (format #t "~a,~a,~a,~a,~a,~a,~a~%" (need-help) (show-size) (show-parsed) (show-front) (print-asm) (show-front) (outfile))
-    (format #t "~a~%" filename)
+    ;;(format #t "~a~%" args)
+    ;;(format #t "~a,~a,~a,~a,~a,~a,~a~%" (need-help) (show-size) (show-parsed) (show-front) (print-asm) (show-front) (outfile))
+    ;;(format #t "~a~%" filename)
     (cond
      ((need-help) 
       (display usage)

@@ -1,1 +1,1 @@
-(load "vm/bsp-stdlib.scm")
+(include "vm/bsp/stdlib.scm")

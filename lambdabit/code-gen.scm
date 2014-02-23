@@ -41,12 +41,16 @@
 
 (define (gen-instruction instr nb-pop nb-push ctx)
   ;;(format #t "GEN-INSTR: ~a,~a,~a,~a~%" instr nb-pop nb-push ((@ (lambdabit utils) ->list) ctx))
+;;  (begin (display "ZZZZjj")(display (->list (env-local (context-env ctx))))(newline))
   (let* ((env (context-env ctx))
          (stk (stack-extend #f
                             nb-push
-                            (stack-discard nb-pop (env-local env)))))
-    (context-add-instr (context-change-env ctx (env-change-local env stk))
-                       instr)))
+                            (stack-discard nb-pop (env-local env))))
+         (c (context-add-instr (context-change-env ctx (env-change-local env stk))
+                               instr)))
+  ;;  (begin (display "ZZZZbb")(display (->list (env-local (context-env c))))(newline))
+    c))
+
 
 ;; function entry
 (define (gen-entry nparams rest? ctx)
@@ -54,7 +58,10 @@
 
 ;; push constant to function stack
 (define (gen-push-constant val ctx)
-  (gen-instruction `(push-constant ,val) 0 1 ctx))
+  (begin (display "ZZZZ-constant")(display (->list (env-local (context-env ctx))))(newline))
+  (let ((i (gen-instruction `(push-constant ,val) 0 1 ctx)))
+    (begin (display "ZZZZ-constant2")(display (->list (env-local (context-env i))))(newline))
+    i))  
 
 (define (gen-push-unspecified ctx)
   (gen-push-constant #f ctx))
@@ -100,13 +107,19 @@
   (gen-instruction `(goto-if-false ,label-false ,label-true) 1 0 ctx))
 
 (define (gen-closure label-entry ctx)
-  (gen-instruction `(closure ,label-entry) 1 1 ctx))
+  (begin (display "ZZZZ-closure")(display (->list (env-local (context-env ctx))))(newline))
+  (let ((i (gen-instruction `(closure ,label-entry) 1 1 ctx)))
+    (begin (display "ZZZZ-closure2")(display (->list (env-local (context-env i))))(newline))
+    i))
 
 (define (gen-prim id nargs unspec-result? ctx)
-  (gen-instruction `(prim ,id)
-                   nargs
-                   (if unspec-result? 0 1)
-                   ctx))
+  (begin (display "ZZZZ-prim")(display (->list (env-local (context-env ctx))))(newline))
+  (let ((i (gen-instruction `(prim ,id)
+                            nargs
+                            (if unspec-result? 0 1)
+                            ctx)))
+    (begin (display "ZZZZ-closure2")(display (->list (env-local (context-env i))))(newline))
+    i))
 
 (define (gen-pop ctx)
   (gen-instruction '(pop) 1 0 ctx))

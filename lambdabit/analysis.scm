@@ -16,13 +16,20 @@
 (define-module (lambdabit analysis)
   #:use-module (ice-9 match)
   #:use-module (srfi srfi-1)
+  #:use-module (srfi srfi-26)
   #:use-module (lambdabit ast)
   #:use-module (lambdabit env)
   #:use-module (lambdabit primitives)
-  #:use-module (lambdabit utils))
-
-(module-export-all! (current-module))
-
+  #:use-module (lambdabit utils)
+  #:export (mark-var!
+            mark-needed-global-vars!
+            needs-closure?
+            toplevel-prc?
+            side-effect-less?
+            side-effect-oblivious?
+            global-fv
+            non-global-fv))
+            
 (define (mark-var! var)
   (when (and (var-global? var)
              (not (var-needed? var))
@@ -72,6 +79,7 @@
     (and (prc? val)
          val)))
 
+;; FIXME: frankly, I don't like these code, they are not well modulerized.
 ;; oblivious? is true if we want to check for side-effect obliviousless, which
 ;; is stronger
 (define* (side-effect-less? n #:optional (oblivious? #f) (seen '()))
@@ -119,6 +127,7 @@
                                                                oblivious?
                                                                (cons var seen)))))
                                  seen))))))))))))
+
 ;; could look into if*, seq, etc in operator position, making sure it refers to
 ;; a side-effect-less? proc (refs encountered during that are not automatically
 ;; ok)
@@ -133,23 +142,35 @@
 
 ;; These two are for outside consumption, so they return results as lists.
 (define (global-fv n)
+  ;;(format #t "global-fv: enter! ~a~%" n)
   (filter var-global? (fv n)))
 (define (non-global-fv n)
+  ;;(format #t "non-global-fv: enter! ~a~%" n)
   (filter (lambda (x) (not (var-global? x)))
           (fv n)))
 
 (define (fv n)
+  ;;(format #t "fv0: ~a~%" (->list n))
   (match (->list n)
     ((? %cst?)
+    ;; (display "0\n")
      '()) ; empty varset
     (('ref _ () v)
+     ;;(display "1\n")
+     ;;(format #t "fv1: ~a~%" (->list v))
      (list v)) ; singleton varset
     (('def _ (val) v)
-     (append (fv val) v))
+     ;;(display "2\n")
+     ;;(format #t "fv2: ~a~%" v)
+     (append (fv val) (if (list? v) v (list v))))
     (('set _ (val) v)
-     (append (fv val) v))
+     ;;(display "3\n")
+     ;;(format #t "fv3: ~a" v)
+     (append (fv val) (if (list? v) v (list v))))
     (('prc _ (body) params _ _)
-     (set-subtract (fv body) (map ->list params)))
+     ;;(display "4\n")
+     (set-subtract (fv body) params))
     ((or (? %if*?) (? %call?) (? %seq?))
+     ;;(format #t "fv: ~a~%" (map fv (node-children n)))
      (apply lset-union equal? (map fv (node-children n))))
     (else (compiler-error "fv: unknown expression type" n))))

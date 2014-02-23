@@ -15,9 +15,29 @@
 
 (define-module (lambdabit reader)
   #:use-module (srfi srfi-4)
-  #:use-module (lambdabit utils))
+  #:use-module (ice-9 match)
+  #:use-module (lambdabit utils)
+  #:export (read-program))
 
-(module-export-all! (current-module))
+(define-syntax-rule (->lib file)
+  (format #f "~a/~a" (current-libpath) file))
+
+(define (expand-include expr)
+  (match expr
+    ((include file)
+     (when (not (file-exists? file))
+       (error expand-include "No such file to include" file))
+     (let ((in (open-input-file file)))
+       (get-all-exprs-from-port in)))
+    (else expr)))
+
+(define (get-all-exprs-from-port port)
+  (let lp((expr (read port)) (ret '()))
+    (cond
+     ((eof-object? expr) (reverse ret))
+     (else
+      (let ((e (expand-include expr)))
+        (lp (read port) (cons e ret)))))))
 
 (define (read-program port)
   ;; we have to put read-lib and the-library in read-program to make sure that

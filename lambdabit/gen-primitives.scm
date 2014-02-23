@@ -2,7 +2,7 @@
 (define-primitive '%halt 0 0)
 (define-primitive 'pair? 1 1)
 (define-primitive 'cons 2 2)
-;(define-primitive 'car 1 3)
+(define-primitive 'car 1 3)
 (define-primitive 'cdr 1 4)
 (define-primitive 'set-car! 2 5 #:unspecified-result)
 (define-primitive 'set-cdr! 2 6 #:unspecified-result)

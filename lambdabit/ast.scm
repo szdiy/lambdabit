@@ -70,15 +70,15 @@
 ;; extract the args from cons to list, say, (a b . c) ==> (a b c)
 (define (extract-ids pattern)
   (match pattern
+    ((? list?) pattern) ; (lambda (a b c) ...)
     ((a . b) `(,a ,@(extract-ids b))) ; (lambda (a b . c) ...)
     (() '()) ; (lambda () ...)
-    ((? list?) pattern) ; (lambda (a b c) ...)
     (else (cons pattern '())))) ; (lambda args ...)
 
 ;; '(a b . c) is not-list but pair, and '(a b c) is list
 (define (has-rest-param? pattern)
   (match pattern
-    ((a . b) #t)
+    ((? pair?) #t)
     (else #f)))
 
 ;; AST construction helpers
@@ -202,10 +202,11 @@
     (if (prc? new)
         (append (map cons (prc-params n) (prc-params new)) substs)
         substs))
-  ;; (format #t "anyway:~%")
+  ;;(format #t "anyway:~%")
   (node-children-set! new 
                       (map (lambda (c) (copy-node c new-substs)) (node-children n)))
   (fix-children-parent! new)
+  ;; (display "1231231231\n")
   new)
 
 ;; Pretty-printer, mostly for debugging

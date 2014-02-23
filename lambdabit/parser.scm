@@ -19,17 +19,23 @@
   #:use-module (lambdabit utils)
   #:use-module (lambdabit env)
   #:use-module (lambdabit ast)
+  #:use-module (lambdabit ir)
   #:use-module (lambdabit analysis)
   );;#:export (parse-program))
 
 (module-export-all! (current-module))
 
-(define *unimplemented-op-lst* 
+;; NOTE:
+;; These ops includes two parts:
+;; 1. hasn't implemented;
+;; 2. shouldn't appear in certain position.
+;; FIXME: find a better way
+(define *wrong-op-lst* 
   '(quote quasiquote unquote unquote-splicing lambda if set!
     cond and or case let let* letrec begin do define delay))
 
-(define (is-unimplemented-op? op)
-  (memq op *unimplemented-op-lst*))
+(define (is-wrong-op? op)
+  (memq op *wrong-op-lst*))
 
 (define (parse-top-list lst env)
   (append-map (lambda (e) (parse-top e env)) lst))
@@ -46,6 +52,7 @@
     (parameterize ((allow-forward-references? forward-references?))
       (let* ((val2 (parse 'value val env))
              (r (make-def #f (list val2) var2)))
+        ;;(format #t "parse-define: ~a~%" env)
         (fix-children-parent! r)
         (when (var-def var2)
           (compiler-error "parse-define: variable redefinition forbidden" var2))
@@ -116,9 +123,10 @@
     (('if tst thn els ...)
      (let* ((a (parse 'test tst env))
             (b (parse use thn env))
-            (c (if (null? els)
-                   (make-cst #f '() #f)
-                   (parse use els env)))
+            (c (cond
+                ((null? els) (make-cst #f '() #f))
+                ((null? (cdr els)) (parse use (car els) env))
+                (else (compiler-error "parse: redundant expr follow 'els'!"))))
             (r (make-if* #f (list a b c))))
        (fix-children-parent! r)
        r))
@@ -134,19 +142,20 @@
                  `(let ((,x tst))
                      (if ,x
                          (rhs ,x)
-                         (cond @other-clauses)))
+                         (cond ,@other-clauses)))
                  env)))
        (((tst rhs ...) other-clauses ...)
         (parse use
                `(if ,tst
-                     (begin ,@rhs)
-                     (cond ,@other-clauses))
+                    (begin ,@rhs)
+                    (cond ,@other-clauses))
                env))))
     (('lambda pattern body* ...)
      (let* ((ids (extract-ids pattern))
             ;; children params rest?
             (r (create-prc '() #f (has-rest-param? pattern)))
             (new-env (env-extend env ids r))
+            (x (format #t "ee? ~a, ~a~%" (eq? new-env env) (eq? new-env global-env)))
             (body (parse-body body* new-env))
             (mut-vars (fold (lambda (id p)
                               (let ((v (env-lookup new-env id)))
@@ -155,7 +164,8 @@
                                     p)))
                             '() ids)))
        ;;(format #t "MUT-VARS: ~a~%" mut-vars)
-       ;;(format #t "new-env: ~a~%" (map ->list new-env))
+       ;;(format #t "expr: ~a~%" expr)
+       ;;(format #t "new-env: ~a~%" new-env) ;;(map ->list new-env))
        ;;(read-char)
        (cond 
         ((null? mut-vars)
@@ -238,7 +248,7 @@
                       (if ,v ,v (or ,@rest))))
                 env)))
     ((op args ...)
-     (when (is-unimplemented-op? op)
+     (when (is-wrong-op? op)
        (compiler-error "parse: the compiler does not implement the special form" op))
      (let* ((exprs (cons (parse 'value op env 'operator-position)
                          (map (lambda (e) (parse 'value e env)) args)))

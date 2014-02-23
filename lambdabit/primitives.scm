@@ -17,6 +17,7 @@
   #:use-module (ice-9 match)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-4)
+  #:use-module (rnrs bytevectors)
   #:use-module (lambdabit env)
   #:use-module (lambdabit ast)
   #:use-module (lambdabit utils))
@@ -50,6 +51,7 @@
   (let* ((prim (make-primitive nargs #f #f uns-res?))
          (var (make-primitive-var name prim)))
     ;; eta-expansion, for higher-order uses
+    (format #t "define-primitive: ~a~%" (->list var))
     (primitive-eta-expansion-set! prim (create-eta-expansion var nargs))
     ;; we need to set env directly, since we create the variables ourselves
     (set-global-env! (cons var global-env))
@@ -108,5 +110,5 @@
 ;; but they can't always be moved since their behavior depends on the ordering
 ;; of other side effects.
 (define mutable-data-accessors
-  (map (lambda (name) (env-lookup global-env name)) 
+  (map (lambda (name) (env-lookup global-env name))
        '(car cdr u8vector-ref string->list list->string)))
