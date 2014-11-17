@@ -29,26 +29,25 @@
   (remove-useless-bbs! bbs))
 
 (define (bbs->ref-counts bbs)
-  (letrec* ((ref-counts (make-vector (vector-length bbs) 0))
-            (visit 
-             (lambda (label)
-               (let ((ref-count (vector-ref ref-counts label)))
-                 (vector-set! ref-counts label (+ ref-count 1))
-                 (when (= ref-count 0)
-                   (for-each
-                    (lambda (instr)
-                      (match instr
-                        (('goto arg)
-                         (visit arg))
-                        (('goto-if-false a1 a2)
-                         (visit a1)
-                         (visit a2))
-                        (((or 'closure 'call-toplevel 'jump-toplevel) arg)
-                         (visit arg))
-                        (_ #f)))
-                    (bb-rev-instrs (vector-ref bbs label))))))))
+  (define ref-counts (make-vector (vector-length bbs) 0))
+  (define (visit label)
+    (let ((ref-count (vector-ref ref-counts label)))
+      (vector-set! ref-counts label (+ ref-count 1))
+      (when (= ref-count 0)
+        (for-each
+         (lambda (instr)
+           (match instr
+             (('goto arg)
+              (visit arg))
+             (('goto-if-false a1 a2)
+              (visit a1)
+              (visit a2))
+             (((or 'closure 'call-toplevel 'jump-toplevel) arg)
+              (visit arg))
+             (else #f)))
+         (bb-rev-instrs (vector-ref bbs label))))))
     (visit 0)
-    ref-counts))
+    ref-counts)
 
 (define (tighten-jump-cascades! bbs)
   (define ref-counts (bbs->ref-counts bbs))
@@ -60,56 +59,58 @@
   (define (iterate)
     (define changed?
       (let-values (((cur-bb i) (in-indexed (vector-length bbs))))
-        (fold 
+        (fold
          (lambda (bb ii p)
-           (when (> (vector-ref ref-counts ii) 0)
-             (match bb
-               (('bb label (jump . rest))
-                (match jump
-                  (`(goto ,label)
-                   (let ((jump-replacement (resolve label)))
-                     (if jump-replacement
-                         ;; void is non-false, counts as a change
-                         (vector-set! bbs ii
-                                      (make-bb label
-                                               (append jump-replacement rest)))
-                         p)))
-                  (`(goto-if-false ,label-then ,label-else)
-                   (let* ((jump-then-replacement (resolve label-then))
-                          (jump-else-replacement (resolve label-else))
-                          (just-jump-then
-                           (and jump-then-replacement
-                                (null? (cdr jump-then-replacement))))
-                          (just-jump-else
-                           (and jump-else-replacement
-                                (null? (cdr jump-else-replacement))))
-                          (then-goto (eq? (caar jump-then-replacement) 'goto))
-                          (else-goto (eq? (caar jump-else-replacement) 'goto)))
-                     (if (and just-jump-then just-jump-else
-                              (or then-goto else-goto))
-                         ;; void is non-false, counts as a change
-                         (vector-set! 
-                          bbs ii
-                          (make-bb label
-                                   `((goto-if-false
-                                      ,(if then-goto
-                                           (cadar jump-then-replacement)
-                                           label-then)
-                                      ,(if else-goto
-                                           (cadar jump-else-replacement)
-                                           label-else))
-                                     . rest)))
-                         p)))))
-               (else p))))
+           (if (> (vector-ref ref-counts ii) 0)
+               (match bb
+                 (('bb label (jump . rest))
+                  (match jump
+                    (`(goto ,label)
+                     (let ((jump-replacement (resolve label)))
+                       (if jump-replacement
+                           ;; void is non-false, counts as a change
+                           (vector-set! bbs ii
+                                        (make-bb label
+                                                 (append jump-replacement rest)))
+                           p)))
+                    (`(goto-if-false ,label-then ,label-else)
+                     (let* ((jump-then-replacement (resolve label-then))
+                            (jump-else-replacement (resolve label-else))
+                            (just-jump-then
+                             (and jump-then-replacement
+                                  (null? (cdr jump-then-replacement))))
+                            (just-jump-else
+                             (and jump-else-replacement
+                                  (null? (cdr jump-else-replacement))))
+                            (then-goto (eq? (caar jump-then-replacement) 'goto))
+                            (else-goto (eq? (caar jump-else-replacement) 'goto)))
+                       (if (and just-jump-then just-jump-else
+                                (or then-goto else-goto))
+                           ;; void is non-false, counts as a change
+                           (vector-set!
+                            bbs ii
+                            (make-bb label
+                                     `((goto-if-false
+                                        ,(if then-goto
+                                             (cadar jump-then-replacement)
+                                             label-then)
+                                        ,(if else-goto
+                                             (cadar jump-else-replacement)
+                                             label-else))
+                                       . rest)))
+                           p)))))
+                 (else p))
+               p))
          #f cur-bb i)))
     (when changed? (iterate)))
   ;; begin iterate
+  (format #t "iterate: ~a~%" (vector-length bbs))
   (iterate))
 
 (define (remove-useless-bbs! bbs)
-  (define ref-counts (bbs->ref-counts bbs))
+  (define ref-counts (vector->list (bbs->ref-counts bbs)))
   (define new-label
-    (let-values (((bb label) (in-indexed bbs)))
+    (let-values (((bb label) (in-indexed (vector->list bbs))))
       (fold (lambda (c b l new-label)
               (cond
                ((> c 0)
