@@ -18,6 +18,7 @@
   #:use-module (lambdabit ast)
   #:use-module (lambdabit utils)
   #:use-module (ice-9 match)
+  #:use-module (ice-9 control)
   #:use-module (srfi srfi-11)
   #:export (renumber-labels code->vector resolve-toplevel-labels!))
 
@@ -28,43 +29,45 @@
 (define (renumber-labels bbs ref-counts n)
   (define (fix instr)
     (define (make-new-label label)
-      (bb-label (vector-ref bbs label)))
-    (match (->list instr)
+      (bb-label (list-ref bbs label)))
+    (match instr
       (`(,(and opcode (or 'closure 'call-toplevel 'jump-toplevel 'goto)) ,arg)
        (list opcode (make-new-label arg)))
       (`(goto-if-false ,a1 ,a2)
        (list 'goto-if-false (make-new-label a1) (make-new-label a2)))
-      (_ instr)))
+      (else instr)))
 
-  (let ((new-bbs (make-vector n)))
+  (let ((new-bbs (make-list n)))
     (let-values (((b label) (in-indexed bbs)))
       (for-each
        (lambda (bb ll)
-         (when (> (vector-ref ref-counts ll) 0)
+         (when (> (list-ref ref-counts ll) 0)
            (match (->list bb)
              (('bb new-label rev-instrs)
-              (vector-set! new-bbs new-label
+              (list-set! new-bbs new-label
                            (make-bb new-label (map fix rev-instrs))))
              (else (error renumber-labels "impossible to be here!")))))
        b label))
     new-bbs))
 
 (define (code->vector code)
-  (let ((v (make-vector (+ (code-last-label code) 1))))
-    (for-each (lambda (bb) (vector-set! v (bb-label bb) bb))
+  (let ((v (make-list (+ (code-last-label code) 1))))
+    (for-each (lambda (bb) (list-set! v (bb-label bb) bb))
               (code-rev-bbs code))
     v))
 
 (define (resolve-toplevel-labels! bbs)
-  (let ((i (either (iota (vector-length bbs)))))
-    (let* ((bb (vector-ref bbs i))
-           (rev-instrs (bb-rev-instrs bb)))
-      (bb-rev-instrs-set!
-       bb
-       (map (lambda (instr)
-                (display (->list instr))(newline)
-              (match (->list instr)
-                (`(,(and opcode (or 'call-toplevel 'jump-toplevel)) ,arg)
-                 `(,opcode ,(prc-entry-label arg)))
-                (instr instr)))
-            rev-instrs)))))
+  (for-each
+   (lambda (i)
+     (let* ((bb (list-ref bbs i))
+            (rev-instrs (bb-rev-instrs bb)))
+       (bb-rev-instrs-set!
+        bb
+        (map (lambda (instr)
+               (display instr)(newline)
+               (match instr
+                 (`(,(and opcode (or 'call-toplevel 'jump-toplevel)) ,arg)
+                  `(,opcode ,(prc-entry-label arg)))
+                 (instr instr)))
+             rev-instrs))))
+   (iota (length bbs))))
