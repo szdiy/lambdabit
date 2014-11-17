@@ -29,10 +29,10 @@
   (remove-useless-bbs! bbs))
 
 (define (bbs->ref-counts bbs)
-  (define ref-counts (make-vector (vector-length bbs) 0))
+  (define ref-counts (make-list (length bbs) 0))
   (define (visit label)
-    (let ((ref-count (vector-ref ref-counts label)))
-      (vector-set! ref-counts label (+ ref-count 1))
+    (let ((ref-count (list-ref ref-counts label)))
+      (list-set! ref-counts label (+ ref-count 1))
       (when (= ref-count 0)
         (for-each
          (lambda (instr)
@@ -45,7 +45,7 @@
              (((or 'closure 'call-toplevel 'jump-toplevel) arg)
               (visit arg))
              (else #f)))
-         (bb-rev-instrs (vector-ref bbs label))))))
+         (bb-rev-instrs (list-ref bbs label))))))
     (visit 0)
     ref-counts)
 
@@ -58,10 +58,10 @@
            rev-instrs)))
   (define (iterate)
     (define changed?
-      (let-values (((cur-bb i) (in-indexed (vector-length bbs))))
+      (let-values (((cur-bb i) (in-indexed (length bbs))))
         (fold
          (lambda (bb ii p)
-           (if (> (vector-ref ref-counts ii) 0)
+           (if (> (list-ref ref-counts ii) 0)
                (match bb
                  (('bb label (jump . rest))
                   (match jump
@@ -69,7 +69,7 @@
                      (let ((jump-replacement (resolve label)))
                        (if jump-replacement
                            ;; void is non-false, counts as a change
-                           (vector-set! bbs ii
+                           (list-set! bbs ii
                                         (make-bb label
                                                  (append jump-replacement rest)))
                            p)))
@@ -87,7 +87,7 @@
                        (if (and just-jump-then just-jump-else
                                 (or then-goto else-goto))
                            ;; void is non-false, counts as a change
-                           (vector-set!
+                           (list-set!
                             bbs ii
                             (make-bb label
                                      `((goto-if-false
@@ -104,17 +104,17 @@
          #f cur-bb i)))
     (when changed? (iterate)))
   ;; begin iterate
-  (format #t "iterate: ~a~%" (vector-length bbs))
+  (format #t "iterate: ~a~%" (length bbs))
   (iterate))
 
 (define (remove-useless-bbs! bbs)
-  (define ref-counts (vector->list (bbs->ref-counts bbs)))
+  (define ref-counts (bbs->ref-counts bbs))
   (define new-label
-    (let-values (((bb label) (in-indexed (vector->list bbs))))
+    (let-values (((bb label) (in-indexed bbs)))
       (fold (lambda (c b l new-label)
               (cond
                ((> c 0)
-                (vector-set! bbs l (make-bb new-label (bb-rev-instrs b)))
+                (list-set! bbs l (make-bb new-label (bb-rev-instrs b)))
                 (1+ new-label))
                (else new-label)))
             0 ref-counts bb label)))
