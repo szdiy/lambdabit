@@ -129,11 +129,13 @@
 (define (either-val lst) (shift k (map k lst)))
 
 (define (in-indexed lst)
-  (cond
-   ((list? lst)
-    (apply values (map list lst (iota (length lst)))))
-   ((integer? lst)
-    (apply values (map list (iota lst) (iota lst))))))
+  (if (vector? lst)
+      (in-indexed (vector->list lst))
+      (cond
+       ((list? lst)
+        (unzip2 (map list lst (iota (length lst)))))
+       ((integer? lst)
+        (unzip2 (map list (iota lst) (iota lst)))))))
 
 (define (compiler-error msg . others)
   (parameterize ((current-output-port (current-error-port)))
