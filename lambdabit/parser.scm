@@ -131,10 +131,12 @@
        (fix-children-parent! r)
        r))
     (('cond body ...) ; should eventually be a macro
+     ;; NOTE: body is a list
      (match body 
        ('()
         (parse use '(if #f #f) env))
-       (('else rhs ...)
+       ((('else rhs ...))
+        ;;(format #t "HERER2: ~a~%" body)
         (parse use `(begin ,@rhs) env))
        (((tst '=> rhs) other-clauses ...)
         (let ((x (genid)))
