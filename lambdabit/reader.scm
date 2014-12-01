@@ -22,22 +22,22 @@
 (define-syntax-rule (->lib file)
   (format #f "~a/~a" (current-libpath) file))
 
-(define (expand-include expr)
+(define (expand-include expr lst)
   (match expr
-    ((include file)
+    (('include file)
      (when (not (file-exists? file))
        (error expand-include "No such file to include" file))
      (let ((in (open-input-file file)))
-       (get-all-exprs-from-port in)))
-    (else expr)))
+       `(,@(get-all-exprs-from-port in) ,@lst)))
+    (else (cons expr lst))))
 
 (define (get-all-exprs-from-port port)
   (let lp((expr (read port)) (ret '()))
     (cond
      ((eof-object? expr) (reverse ret))
      (else
-      (let ((e (expand-include expr)))
-        (lp (read port) (cons e ret)))))))
+      (let ((e (expand-include expr ret)))
+        (lp (read port) e))))))
 
 (define (read-program port)
   ;; we have to put read-lib and the-library in read-program to make sure that
@@ -48,5 +48,6 @@
         (error read-program "The file doesn't exist!" f)))
   (define the-library
     `(,@(read-lib (->lib "library.scm"))        ; architecture-independent
-      ,@(read-lib (->lib "arch-library.scm")))) ; architecture-dependent 
+      ,@(read-lib (->lib "arch-library.scm")))) ; architecture-dependent
+  ;;(for-each (lambda (e) (display e)(newline)(display "------\n")) the-library)
   `(,@the-library ,@(get-all-exprs-from-port port)))
