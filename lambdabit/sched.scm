@@ -17,6 +17,7 @@
   #:use-module (srfi srfi-1)
   #:use-module (ice-9 match)
   #:use-module (lambdabit ir)
+  #:use-module (lambdabit utils)
   #:use-module (lambdabit back-end))
 
 (module-export-all! (current-module))
@@ -25,11 +26,13 @@
 (define (schedule bbs)
   (linearize (reorder! bbs)))
 
-;;-----------------------------------------------------------------------------
+;;----------------------------------------------------------------------------
 
 (define (reorder! bbs)
-  (define done (make-vector (vector-length bbs) #f))
-  (define (unscheduled? label) (not (vector-ref done label)))
+  (define done (make-list (length bbs) #f))
+  (define (unscheduled? label)
+    ;;(format #t "unscheduled? ~a~%" label)
+    (not (list-ref done (if (null? label) 0 label))))
   (define (label-refs instrs todo)
     (fold (lambda (instr p)
             (if (memq (car instr) '(closure call-toplevel jump-toplevel))
@@ -38,27 +41,27 @@
           '(())
           instrs))
   (define (schedule-here label new-label todo)
-    (match (vector-ref bbs label)
-      ((bb label (and rev-instrs `(,jump . ,rest)))
-         (define new-todo (label-refs rev-instrs todo))
-         (vector-set! bbs  label (make-bb new-label rev-instrs))
-         (vector-set! done label #t)
-         (match jump
-           (`(goto ,label)
-            (if (unscheduled? label)
-                (schedule-here label (+ new-label 1) new-todo)
-                (values (+ new-label 1) new-todo)))
-           (`(goto-if-false ,label-then ,label-else)
-            (cond ((unscheduled? label-else)
-                   (schedule-here label-else
-                                  (+ new-label 1)
-                                  (cons label-then new-todo)))
-                  ((unscheduled? label-then)
-                   (schedule-here label-then
-                                  (+ new-label 1)
-                                  new-todo))
-                  (else (values (+ new-label 1) new-todo))))
-           (_ (values (+ new-label 1) new-todo))))))
+    (match (->list (list-ref bbs label))
+      (('bb label (and rev-instrs `(,jump . ,rest)))
+       (define new-todo (label-refs rev-instrs todo))
+       (list-set! bbs  label (make-bb new-label rev-instrs))
+       (list-set! done label #t)
+       (match jump
+         (`(goto ,label)
+          (if (unscheduled? label)
+              (schedule-here label (+ new-label 1) new-todo)
+              (values (+ new-label 1) new-todo)))
+         (`(goto-if-false ,label-then ,label-else)
+          (cond ((unscheduled? label-else)
+                 (schedule-here label-else
+                                (+ new-label 1)
+                                (cons label-then new-todo)))
+                ((unscheduled? label-then)
+                 (schedule-here label-then
+                                (+ new-label 1)
+                                new-todo))
+                (else (values (+ new-label 1) new-todo))))
+         (_ (values (+ new-label 1) new-todo))))))
   (define (schedule-todo new-label todo)
     (when (pair? todo)
       (let ((label (car todo)))
@@ -71,8 +74,8 @@
   (call-with-values (lambda () (schedule-here 0 0 '()))
     schedule-todo)
   
-  (let ((len (vector-length bbs)))
-    (renumber-labels bbs (make-vector len 1) len)))
+  (let ((len (length bbs)))
+    (renumber-labels bbs (make-list len 1) len)))
 
 ;;-----------------------------------------------------------------------------
 
@@ -80,7 +83,7 @@
 ;; Ugly, but better than having everything as an internal define
 (define rev-code '())
 (define pos 0)
-(define todo (cons '() '()))
+(define todo (new-queue)) ; NOTE: it's a bi-directioin list
 (define bbs #f)
 (define dumped #f)
 
@@ -89,55 +92,52 @@
   (set! rev-code (cons x rev-code)))
 
 (define (get fallthrough-to-next?)
-  (define r-todo (cdr todo))
   (cond
-   (fallthrough-to-next?
-    (match r-todo
-      ((cons (and label-pos `(,label . ,_)) rest)
-       (unless (pair? rest)
-         (set-car! todo todo))
-       (set-cdr! todo rest)
-       label)))
-   (else 
-    (let ((best-label-pos
-           (fold (lambda (x p)
-                   (if (and (not (vector-ref dumped (car x)))
-                            (or (not p)
-                                (> (cdr x) (cdr p))))
-                            (cons x p)
-                            p))
-                 '() r-todo)))
-      (and best-label-pos (car best-label-pos))))))
-                 
+   ((queue-empty? todo) #f)
+   (else
+    (cond
+     (fallthrough-to-next?
+      (match (stack-top todo)
+        ((label . _)
+         ;;(format #t "LABEL: ~a~%" label)
+         (stack-pop! todo)
+         label)))
+     (else
+      (let ((best-label-pos
+             (fold (lambda (x p)
+                     (if (and (not (list-ref dumped (car x)))
+                              (or (not p)
+                                  (> (cdr x) (cdr p))))
+                         x
+                         #f))
+                   #f (car todo))))
+        (and best-label-pos (car best-label-pos))))))))
+
 (define (next)
-  (any (lambda (x)
-         (let ((label-pos (cdr todo)))
-           (and (not (vector-ref dumped (car label-pos))) x)))
-       todo))
+  (any (lambda (label-pos)
+         ;;(format #t "BBB: ~a~%" label-pos)
+         ;;(format #t "TODO: ~a~%" todo)
+         (and (not (list-ref dumped (car label-pos))) label-pos))
+       (car todo)))
 
 (define (schedule! label tail?)
   (let ((label-pos (cons label pos)))
     (if tail?
-        (let ((cell (cons label-pos '())))
-          (set-cdr! (car todo) cell)
-          (set-car! todo cell))
-        (let ((cell (cons label-pos (cdr todo))))
-          (set-cdr! todo cell)
-          (when (eq? (car todo) todo)
-            (set-car! todo cell))))))
+        (stack-push! todo label-pos)
+        (queue-in! todo label-pos))))
 
 (define (dump)
   (let lp ((fallthrough-to-next? #t))
     (let ((label (get fallthrough-to-next?)))
       (when label
-        (cond ((not (vector-ref dumped label))
-               (vector-set! dumped label #t)
+        (cond ((not (list-ref dumped label))
+               (list-set! dumped label #t)
                (lp (dump-bb label)))
               (else (lp fallthrough-to-next?)))))))
 
 (define (dump-bb label)
-  (match (vector-ref bbs label)
-    ((bb label `(,jump . ,rest))
+  (match (->list (list-ref bbs label))
+    (('bb label (jump . rest))
      (emit label)
      (for-each (lambda (instr)
                  (match instr
@@ -171,14 +171,13 @@
         ;; it is not correct to remove jump-toplevel when label is next
         (emit jump)
         #f)
-       (_
-        (emit jump)
-        #f)))))
+       (_ (emit jump)
+          #f)))))
 
 (define (linearize cur-bbs)
-  (set! bbs    cur-bbs)
-  (set! dumped (make-vector (vector-length cur-bbs) #f))
-  (set-car! todo todo) ;; make fifo
+  (set! bbs cur-bbs)
+  (set! dumped (make-list (length cur-bbs) #f))
+;;  (set! todo (new-queue)) ; make fifo
   (schedule! 0 #f)
   (dump)
   (reverse rev-code))
