@@ -29,18 +29,18 @@
   #:export (comp-node))
 
 (define (comp-node n ctx)
-  (begin (display "VVVVVV00")(display (->list (cadr (->list (caddr (->list ctx))))))(newline))
+  ;;(begin (display "VVVVVV00")(display (->list (cadr (->list (caddr (->list ctx))))))(newline))
   (match (->list n)
     ((or (? %cst?) (? %ref?) (? %prc?))
      ctx) ; we can drop any of these if we don't care about their value
     (('def _ (rhs) var)
      (if (needs-closure? var)
          (begin
-           (format #t "YES: ~a~%" (->list rhs))
+           ;;(format #t "YES: ~a~%" (->list rhs))
            (comp-prc rhs #f ctx))
          (if (var-needed? var)
              (let ((ctx2 (comp-push rhs ctx)))
-               (display "YES2\n")
+               ;;(display "YES2\n")
                (gen-set-global (var-bare-id var) ctx2))
              (comp-node rhs ctx))))
     (('set _ (rhs) var)
@@ -73,9 +73,10 @@
     (('cst _ () val)
      (gen-push-constant val ctx))
     (('ref _ () var)
-     (format #t "comp-push: ~a~%" (->list var))
+     ;;(format #t "comp-push: ~a~%" (->list var))
      (cond 
       ((not (var-global? var)) ; not a global var, get from local
+       ;;(format #t "comp-push1: ~a~%" (->list (env-local (context-env ctx))))
        (gen-push-local-var (var-bare-id var) ctx))
       ((var-def var) ; var was defined
        (let ((val (var-val var))) ; non-false implies immutable
@@ -172,7 +173,7 @@
                    (build vars ctx))))
 
 (define (comp-prc n closure? ctx)
-  (format #t "YYYYY: ~a~%" (node->expr n))
+  ;;(format #t "YYYYY: ~a~%" (node->expr n))
   ;;(format #t "closure? ~a~%" closure?)
   (let*-values
       (((ctx2 label-entry) (context-make-label ctx))
@@ -203,10 +204,10 @@
   ;;  (format #t "MMMMMMM: ~a~%" (node->expr prc))
   (make-env
    (let ((params (prc-params prc)))
-     (format #t "prc->env: ~a, ~a~%" (length params) params)
+     ;;(format #t "prc->env: ~a, ~a~%" (length params) params)
      (make-stk (length params) (map var-bare-id params)))
    (begin
-     (format #t "prc->env: ngf ~a~%" (non-global-fv prc))
+     ;;(format #t "prc->env: ngf ~a~%" (non-global-fv prc))
      (map var-bare-id (non-global-fv prc)))))
 
 (define (comp-call n reason orig-ctx)
